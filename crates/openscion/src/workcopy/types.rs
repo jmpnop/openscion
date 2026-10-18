@@ -36,6 +36,14 @@ pub(crate) struct FileState {
     pub(crate) size: u64,
     /// Its modification time when last hashed, in nanoseconds since the epoch.
     pub(crate) mtime: u64,
+    /// Its inode change time when last hashed, in nanoseconds since the epoch,
+    /// or `0` where the platform has none. Unlike `mtime`, a content write
+    /// always advances it and user space cannot restore it, so it closes the
+    /// gap where a same-size edit with a reset `mtime` reads as unchanged. A
+    /// state written before this field existed deserializes it as `0`, which
+    /// is never trusted, so those files are re-hashed once.
+    #[serde(default)]
+    pub(crate) ctime: u64,
 }
 
 /// A file found on disk by a scan.
@@ -49,4 +57,7 @@ pub(crate) struct Scanned {
     pub(crate) size: u64,
     /// Its modification time, in nanoseconds since the epoch.
     pub(crate) mtime: u64,
+    /// Its inode change time, in nanoseconds since the epoch, or `0` where the
+    /// platform has none.
+    pub(crate) ctime: u64,
 }

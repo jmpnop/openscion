@@ -41,6 +41,7 @@ pub(crate) fn import(
                 blob,
                 size: file.size,
                 mtime: file.mtime,
+                ctime: file.ctime,
             },
         );
         if seen.insert(blob) {

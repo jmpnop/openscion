@@ -40,7 +40,7 @@ pub(crate) fn clone(
             // `verified` returned every requested id, so the lookup holds.
             let content = blobs.get(blob).copied().unwrap_or_default();
             workcopy::write_file(dest, path, *kind, content)?;
-            let (size, mtime) = workcopy::stat(dest, path)?;
+            let (size, mtime, ctime) = workcopy::stat(dest, path)?;
             files.insert(
                 path.clone(),
                 FileState {
@@ -48,6 +48,7 @@ pub(crate) fn clone(
                     blob: *blob,
                     size,
                     mtime,
+                    ctime,
                 },
             );
         }

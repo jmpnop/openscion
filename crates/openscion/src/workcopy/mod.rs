@@ -4,9 +4,18 @@
 //! A working copy is a directory with a `.opnscn/state.json` recording the
 //! server, the ref, the base changeset, and every tracked file's blob id and
 //! stat data. A scan walks the directory and reports every file with its
-//! kind, size, and modification time; a file whose stat data matches the
-//! state is not re-read, which is what keeps `opnscn commit` proportional to
-//! what changed rather than to the size of the tree.
+//! kind, size, modification time, and inode change time; a file whose stat
+//! data matches the state is not re-read, which is what keeps `opnscn commit`
+//! proportional to what changed rather than to the size of the tree.
+//!
+//! The cache is trusted only when it cannot hide a change: the modification
+//! time alone can be restored by user space (an archive extraction or a
+//! `touch -r` can leave a same-size edit looking untouched), so a file counts
+//! as unchanged only when its inode change time matches too. A content write
+//! always advances the change time and nothing can reset it, so the only
+//! residual is a platform or filesystem that does not report one, where the
+//! change time is `0`, is never trusted, and the file is re-read. The cost is
+//! paid toward re-reading, never toward a missed change.
 //!
 //! Symlinks are stored as their target. On Unix a file with any execute bit
 //! is an executable. Paths that are not UTF-8 are rejected.
@@ -117,9 +126,27 @@ fn walk(dir: &Path, prefix: &str, out: &mut Vec<Scanned>) -> Result<()> {
             kind,
             size: meta.len(),
             mtime: meta.modified().map_or(0, nanos),
+            ctime: change_time(&meta),
         });
     }
     Ok(())
+}
+
+/// The inode change time of `meta` in nanoseconds since the epoch, or `0` on a
+/// platform that does not expose one. A content write always advances it and
+/// user space cannot set it, which is why it, not `mtime`, decides whether a
+/// file can be trusted from its stat data.
+#[cfg(unix)]
+fn change_time(meta: &fs::Metadata) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    let secs = u64::try_from(meta.ctime()).unwrap_or(0);
+    secs.saturating_mul(1_000_000_000)
+        .saturating_add(u64::from(meta.ctime_nsec().try_into().unwrap_or(0u32)))
+}
+
+#[cfg(not(unix))]
+fn change_time(_: &fs::Metadata) -> u64 {
+    0
 }
 
 #[cfg(unix)]
@@ -144,11 +171,18 @@ pub(crate) fn read_content(root: &Path, file: &Scanned) -> Result<Vec<u8>> {
     }
 }
 
-/// Whether `file` can be trusted to still hold `known` without re-reading
-/// it: same kind, size, and modification time, and modified strictly before
-/// the state was written.
+/// Whether `file` can be trusted to still hold `known` without re-reading it:
+/// same kind, size, modification time, and inode change time, and modified
+/// strictly before the state was written.
+///
+/// A known change time of `0` means none was recorded (an older state, or a
+/// platform without one) and is never trusted, so the file is re-read. The
+/// change time is what makes this safe: `mtime` alone can be restored to hide
+/// a same-size edit, but a write always advances the change time.
 pub(crate) fn unchanged(file: &Scanned, known: &FileState, written_at: u64) -> bool {
-    file.kind == known.kind
+    known.ctime != 0
+        && file.ctime == known.ctime
+        && file.kind == known.kind
         && file.size == known.size
         && file.mtime == known.mtime
         && file.mtime < written_at
@@ -197,11 +231,16 @@ fn make_executable(_: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The stat data of a file just written, for the state.
-pub(crate) fn stat(root: &Path, path: &str) -> Result<(u64, u64)> {
+/// The stat data of a file just written, for the state: size, modification
+/// time, and inode change time.
+pub(crate) fn stat(root: &Path, path: &str) -> Result<(u64, u64, u64)> {
     let full = root.join(path);
     let meta = fs::symlink_metadata(&full).map_err(io_error(&full))?;
-    Ok((meta.len(), meta.modified().map_or(0, nanos)))
+    Ok((
+        meta.len(),
+        meta.modified().map_or(0, nanos),
+        change_time(&meta),
+    ))
 }
 
 #[cfg(test)]

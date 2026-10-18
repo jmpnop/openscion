@@ -33,6 +33,7 @@ pub(crate) fn commit(root: &Path, author: &str, message: &str) -> Result<(Change
             blob,
             size: file.size,
             mtime: file.mtime,
+            ctime: file.ctime,
         };
         // Touched but identical: refresh the stat data, record no change.
         if known.is_some_and(|known| known.kind == file.kind && known.blob == blob) {
