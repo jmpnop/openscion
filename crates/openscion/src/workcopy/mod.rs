@@ -188,6 +188,75 @@ pub(crate) fn unchanged(file: &Scanned, known: &FileState, written_at: u64) -> b
         && file.mtime < written_at
 }
 
+/// How a scanned file compares to the base changeset the state records.
+///
+/// Both of [`classify`]'s callers decide a file's state through this one
+/// function — `opnscn status` to report it and `opnscn commit` to record it —
+/// so the two can never disagree about whether a file changed.
+pub(crate) enum Classified {
+    /// The file matches the base. `refreshed` is `Some` only when the file had
+    /// to be re-read because its stat data had moved though its bytes had not;
+    /// a caller that keeps a stat cache stores it so the next scan can skip the
+    /// re-read, and a read-only caller ignores it.
+    Clean {
+        /// A refreshed [`FileState`] to replace the cached one.
+        refreshed: Option<FileState>,
+    },
+    /// The file is new, or its bytes or kind differ from the base.
+    Changed {
+        /// Whether the base already tracked this path: `false` is an addition,
+        /// `true` a modification.
+        known_before: bool,
+        /// The blob the current contents hash to.
+        blob: ObjectId,
+        /// The current contents — a symlink's target for a symlink — ready to
+        /// upload.
+        bytes: Vec<u8>,
+        /// The stat data and blob to record for the file.
+        fresh: FileState,
+    },
+}
+
+/// Classifies one scanned file against the base changeset recorded in `state`.
+///
+/// Applies the [`unchanged`] stat fast path first; only when that cannot prove
+/// the file clean does it re-read the file and compare blob ids, so an
+/// unchanged tree costs no reads. Deciding by blob id is what makes the answer
+/// reflect content rather than a timestamp: a file whose modification time
+/// moved but whose bytes did not classifies [`Classified::Clean`]. See
+/// [`Classified`] for what each outcome carries.
+///
+/// # Errors
+///
+/// Returns [`Error::Io`] when the file cannot be read.
+pub(crate) fn classify(root: &Path, file: &Scanned, state: &State) -> Result<Classified> {
+    let known = state.files.get(&file.path);
+    if known.is_some_and(|known| unchanged(file, known, state.written_at)) {
+        return Ok(Classified::Clean { refreshed: None });
+    }
+    let bytes = read_content(root, file)?;
+    let blob = blob_id(&bytes);
+    let fresh = FileState {
+        kind: file.kind,
+        blob,
+        size: file.size,
+        mtime: file.mtime,
+        ctime: file.ctime,
+    };
+    // Re-read but identical to the base: clean, with its stat data refreshed.
+    if known.is_some_and(|known| known.kind == file.kind && known.blob == blob) {
+        return Ok(Classified::Clean {
+            refreshed: Some(fresh),
+        });
+    }
+    Ok(Classified::Changed {
+        known_before: known.is_some(),
+        blob,
+        bytes,
+        fresh,
+    })
+}
+
 /// Hashes `bytes` as a blob.
 pub(crate) fn blob_id(bytes: &[u8]) -> ObjectId {
     object_id(ObjectKind::Blob, bytes)

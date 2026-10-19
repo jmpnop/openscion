@@ -176,6 +176,28 @@ fn import_commit_and_clone_run_from_the_command_line() {
 }
 
 #[test]
+fn status_reports_changes_and_a_clean_tree_from_the_command_line() {
+    let base = real_server();
+    let source = scratch("cli-status");
+    std::fs::write(source.join("keep.txt"), b"keep").unwrap();
+    std::fs::write(source.join("edit.txt"), b"before").unwrap();
+    std::fs::write(source.join("gone.txt"), b"gone").unwrap();
+    let dir = source.to_str().unwrap();
+    run_at(&base, &["import", dir]);
+
+    // A fresh import has nothing pending.
+    assert_eq!(run_at(&base, &["status", "--dir", dir]), "clean\n");
+
+    std::fs::write(source.join("edit.txt"), b"after!").unwrap();
+    std::fs::write(source.join("add.txt"), b"new").unwrap();
+    std::fs::remove_file(source.join("gone.txt")).unwrap();
+    assert_eq!(
+        run_at(&base, &["status", "--dir", dir]),
+        "A add.txt\nM edit.txt\nD gone.txt\n"
+    );
+}
+
+#[test]
 fn clone_rejects_an_invalid_path() {
     let cli = Cli::try_parse_from(["opnscn", "clone", "x", "--path", "../up"]).unwrap();
     assert!(matches!(run(&cli, &mut Vec::new()), Err(Error::Engine(_))));

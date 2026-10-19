@@ -5,6 +5,7 @@
 | [OpenScion architecture](openscion-architecture.md) | Draft |
 | [OpenScion data model](openscion-data-model.md) | Draft |
 | [OpenScion API](openscion-api.md) | Draft |
+| [Working-copy status](openscion-client-status.md) | Accepted |
 
 Specifications define what the system must do before implementation details
 take over. Create one for behavior that changes a public API, crosses module

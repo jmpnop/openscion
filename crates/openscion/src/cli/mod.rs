@@ -75,6 +75,14 @@ pub enum Command {
         #[arg(long, env = "OPENSCION_AUTHOR", default_value = DEFAULT_AUTHOR)]
         author: String,
     },
+    /// Report a working copy's pending changes against its base changeset:
+    /// added, modified, and deleted files. Reads only local state; prints
+    /// `clean` when nothing has changed.
+    Status {
+        /// The working copy.
+        #[arg(long, default_value = ".")]
+        dir: PathBuf,
+    },
     /// Fetch a ref's snapshot into a new working copy, or only one directory
     /// of it with `--path`.
     Clone {
@@ -210,6 +218,7 @@ pub fn run(cli: &Cli, out: &mut impl Write) -> Result<()> {
             dir,
             author,
         } => commit_cmd(dir, author, message, out),
+        Command::Status { dir } => status_cmd(dir, out),
         Command::Clone {
             dest,
             ref_name,
@@ -289,6 +298,19 @@ fn import_cmd(
 fn commit_cmd(dir: &Path, author: &str, message: &str, out: &mut impl Write) -> Result<()> {
     let (info, changes) = commands::commit(dir, author, message)?;
     writeln!(out, "committed {changes} changes as {}", info.id).map_err(Error::Output)
+}
+
+/// Prints the working copy's pending changes as `<letter> <path>` lines,
+/// sorted by path, or `clean` when there are none.
+fn status_cmd(dir: &Path, out: &mut impl Write) -> Result<()> {
+    let changes = commands::status(dir)?;
+    if changes.is_empty() {
+        return writeln!(out, "clean").map_err(Error::Output);
+    }
+    for (path, code) in changes {
+        writeln!(out, "{} {path}", code.letter()).map_err(Error::Output)?;
+    }
+    Ok(())
 }
 
 /// Clones `ref_name` into `dest`, optionally only the directory at `path`.

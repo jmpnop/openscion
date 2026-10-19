@@ -25,3 +25,5 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a test-first sample
 
 - [`openscion-data-model.md`](openscion-data-model.md) — the core data model, server
   routes, `opnscn` import / commit / clone, and the benchmark backend.
+- [`openscion-client-status.md`](openscion-client-status.md) — `opnscn status`, the
+  read-only working-copy change report (phase 5).

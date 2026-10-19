@@ -7,7 +7,9 @@ use std::fs;
 
 use openscion_core::{EntryKind, ObjectId};
 
-use super::{FileState, Scanned, State, load, save, scan, unchanged, write_file};
+use super::{
+    Classified, FileState, Scanned, State, classify, load, save, scan, unchanged, write_file,
+};
 use crate::Error;
 use crate::test_support::scratch;
 
@@ -208,6 +210,124 @@ fn a_file_state_without_a_change_time_still_loads() {
     let json = br#"{"kind":"file","blob":"0000000000000000000000000000000000000000000000000000000000000000","size":5,"mtime":100}"#;
     let state: FileState = serde_json::from_slice(json).unwrap();
     assert_eq!(state.ctime, 0);
+}
+
+/// A state tracking every file under `root` exactly as it sits on disk, with
+/// the given write time — the shape [`classify`] compares a later scan against.
+fn state_for(root: &std::path::Path, written_at: u64) -> State {
+    let files = scan(root)
+        .unwrap()
+        .into_iter()
+        .map(|file| {
+            let blob = super::blob_id(&super::read_content(root, &file).unwrap());
+            (
+                file.path,
+                FileState {
+                    kind: file.kind,
+                    blob,
+                    size: file.size,
+                    mtime: file.mtime,
+                    ctime: file.ctime,
+                },
+            )
+        })
+        .collect();
+    State {
+        server: "http://h:1".to_owned(),
+        ref_name: "main".to_owned(),
+        base: ObjectId::from_bytes([0; 32]),
+        sparse: None,
+        written_at,
+        files,
+    }
+}
+
+#[test]
+fn classify_separates_clean_added_and_modified() {
+    use std::time::Duration;
+    let root = scratch("classify");
+    fs::write(root.join("keep.txt"), b"keep").unwrap();
+    fs::write(root.join("edit.txt"), b"before").unwrap();
+    // A future write time lets the stat fast path prove an untouched file clean.
+    let state = state_for(&root, u64::MAX);
+
+    // Edit one file with the same length (content, not size, must decide), add
+    // one, and leave the third untouched.
+    std::thread::sleep(Duration::from_millis(20));
+    fs::write(root.join("edit.txt"), b"after!").unwrap();
+    fs::write(root.join("add.txt"), b"new").unwrap();
+
+    let scanned = scan(&root).unwrap();
+    let find = |name: &str| scanned.iter().find(|f| f.path == name).unwrap().clone();
+
+    assert!(matches!(
+        classify(&root, &find("keep.txt"), &state).unwrap(),
+        Classified::Clean { refreshed: None }
+    ));
+    assert!(matches!(
+        classify(&root, &find("add.txt"), &state).unwrap(),
+        Classified::Changed {
+            known_before: false,
+            ..
+        }
+    ));
+    assert!(matches!(
+        classify(&root, &find("edit.txt"), &state).unwrap(),
+        Classified::Changed {
+            known_before: true,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn classify_treats_a_touched_but_identical_file_as_clean() {
+    use std::time::Duration;
+    let root = scratch("classify-touch");
+    fs::write(root.join("a.txt"), b"same").unwrap();
+    let state = state_for(&root, u64::MAX);
+
+    // Rewrite with identical bytes: stat data moves, content does not.
+    std::thread::sleep(Duration::from_millis(20));
+    fs::write(root.join("a.txt"), b"same").unwrap();
+
+    let scanned = scan(&root).unwrap();
+    match classify(&root, &scanned[0], &state).unwrap() {
+        Classified::Clean {
+            refreshed: Some(fresh),
+        } => {
+            assert_eq!(fresh.blob, super::blob_id(b"same"));
+            assert_ne!(
+                fresh.ctime, state.files["a.txt"].ctime,
+                "the refreshed stat data reflects the touch"
+            );
+        }
+        _ => panic!("a touched but identical file must be clean, with a refreshed stat"),
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn classify_sees_a_kind_change_with_identical_bytes_as_a_modification() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::Duration;
+    let root = scratch("classify-kind");
+    fs::write(root.join("s.sh"), b"#!/bin/sh\n").unwrap();
+    let state = state_for(&root, u64::MAX);
+
+    std::thread::sleep(Duration::from_millis(20));
+    fs::set_permissions(root.join("s.sh"), fs::Permissions::from_mode(0o755)).unwrap();
+
+    let scanned = scan(&root).unwrap();
+    assert_eq!(scanned[0].kind, EntryKind::Executable);
+    match classify(&root, &scanned[0], &state).unwrap() {
+        Classified::Changed {
+            known_before: true,
+            blob,
+            ..
+        } => assert_eq!(blob, super::blob_id(b"#!/bin/sh\n"), "same bytes"),
+        _ => panic!("a kind change is a modification even with identical bytes"),
+    }
 }
 
 #[test]

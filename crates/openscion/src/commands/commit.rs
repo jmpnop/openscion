@@ -6,7 +6,7 @@ use std::path::Path;
 use openscion_core::{Change, ChangesetInfo, CreateChangeset, RepoPath, UpdateRef};
 
 use super::upload;
-use crate::workcopy::{self, FileState};
+use crate::workcopy::{self, Classified};
 use crate::{Error, Result, ServerClient};
 
 /// Commits every change in the working copy at `root` and moves its ref.
@@ -22,32 +22,26 @@ pub(crate) fn commit(root: &Path, author: &str, message: &str) -> Result<(Change
     let mut present = HashSet::with_capacity(scanned.len());
     for file in &scanned {
         present.insert(file.path.as_str());
-        let known = state.files.get(&file.path);
-        if known.is_some_and(|known| workcopy::unchanged(file, known, state.written_at)) {
-            continue;
-        }
-        let bytes = workcopy::read_content(root, file)?;
-        let blob = workcopy::blob_id(&bytes);
-        let fresh = FileState {
-            kind: file.kind,
-            blob,
-            size: file.size,
-            mtime: file.mtime,
-            ctime: file.ctime,
-        };
-        // Touched but identical: refresh the stat data, record no change.
-        if known.is_some_and(|known| known.kind == file.kind && known.blob == blob) {
-            state.files.insert(file.path.clone(), fresh);
-            continue;
-        }
-        changes.push(Change::Upsert {
-            path: RepoPath::new(file.path.as_str())?,
-            kind: file.kind,
-            blob,
-        });
-        state.files.insert(file.path.clone(), fresh);
-        if seen.insert(blob) {
-            blobs.push((blob, bytes));
+        match workcopy::classify(root, file, &state)? {
+            // Unchanged, or touched but identical: at most refresh the cache.
+            Classified::Clean { refreshed } => {
+                if let Some(fresh) = refreshed {
+                    state.files.insert(file.path.clone(), fresh);
+                }
+            }
+            Classified::Changed {
+                blob, bytes, fresh, ..
+            } => {
+                changes.push(Change::Upsert {
+                    path: RepoPath::new(file.path.as_str())?,
+                    kind: file.kind,
+                    blob,
+                });
+                state.files.insert(file.path.clone(), fresh);
+                if seen.insert(blob) {
+                    blobs.push((blob, bytes));
+                }
+            }
         }
     }
     let deleted: Vec<String> = state

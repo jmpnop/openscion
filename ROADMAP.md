@@ -42,11 +42,22 @@ This page tracks where things stand.
   linear spine was ~1 s on the SQLite store (one lookup per hop); the skip list
   makes the same question ~30 lookups. This completes the derived-data phase.
 
+- **Working-copy status** ([spec](docs/specs/openscion-client-status.md),
+  [plan](docs/plans/openscion-client-status.md)): `opnscn status`, a read-only
+  report of a working copy's pending changes — added, modified, and deleted
+  files — against its base changeset, from local state alone and with no server
+  request. It decides by content, not timestamp: a file whose bytes are
+  unchanged is clean even when its mtime moved. One classifier backs both
+  `status` and `commit`, so they can never disagree about what changed. First
+  chunk of phase 5.
+
 ## Next
 
-1. **`opnscn` client and node daemon**: sparse checkout, status via a filesystem
-   watcher, commit, and land in the client; the daemon's node-local store and
-   snapshot boot.
+1. **`opnscn` client and node daemon** (phase 5, continued): a filesystem
+   watcher that makes `status` incremental rather than a full rescan;
+   first-class sparse-set management (editing the checked-out paths after a
+   clone); and the node daemon with its node-local store and snapshot boot.
+   `status`, `commit`, and `land` already exist in the client.
 
 ## Later
 

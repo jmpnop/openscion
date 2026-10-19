@@ -8,7 +8,8 @@ use std::path::Path;
 
 use openscion_core::{FrameWriter, ObjectId, ObjectKind, RepoPath, object_id};
 
-use super::{clone, commit, import};
+use super::status::StatusCode;
+use super::{clone, commit, import, status};
 use crate::test_support::{real_server, scratch};
 use crate::{Error, ServerClient};
 
@@ -187,6 +188,92 @@ fn a_commit_from_a_sparse_clone_keeps_the_rest_of_the_tree() {
     let mut expected = contents(&root);
     expected.insert("docs/guide.md".to_owned(), b"better guide\n".to_vec());
     assert_eq!(contents(&full), expected);
+}
+
+#[test]
+fn status_reports_additions_modifications_and_deletions() {
+    let (_, root) = imported();
+    fs::write(root.join("README.md"), b"# changed\n").unwrap();
+    fs::write(root.join("src/new.rs"), b"// new\n").unwrap();
+    fs::remove_file(root.join("docs/guide.md")).unwrap();
+    assert_eq!(
+        status(&root).unwrap(),
+        vec![
+            ("README.md".to_owned(), StatusCode::Modified),
+            ("docs/guide.md".to_owned(), StatusCode::Deleted),
+            ("src/new.rs".to_owned(), StatusCode::Added),
+        ]
+    );
+}
+
+#[test]
+fn status_is_clean_on_a_fresh_clone_and_after_a_mere_touch() {
+    let (client, _) = imported();
+    let work = scratch("status-clean");
+    clone(&client, "main", &work, None).unwrap();
+    assert!(status(&work).unwrap().is_empty());
+    // Rewrite a file with its original bytes: its stat data moves, not content.
+    fs::write(work.join("README.md"), b"# demo\n").unwrap();
+    assert!(status(&work).unwrap().is_empty(), "a touch is not a change");
+}
+
+#[test]
+fn status_reports_exactly_the_set_commit_records() {
+    let (client, _) = imported();
+    let work = scratch("status-eq");
+    clone(&client, "main", &work, None).unwrap();
+    fs::write(work.join("README.md"), b"# changed\n").unwrap();
+    fs::write(work.join("extra.txt"), b"x\n").unwrap();
+    fs::remove_file(work.join("docs/copy.md")).unwrap();
+
+    let reported: Vec<String> = status(&work)
+        .unwrap()
+        .into_iter()
+        .map(|(path, _)| path)
+        .collect();
+    assert_eq!(reported, ["README.md", "docs/copy.md", "extra.txt"]);
+    // The read-only report left the same change set for commit to record.
+    let (_, changes) = commit(&work, "t", "m").unwrap();
+    assert_eq!(changes, reported.len());
+}
+
+#[test]
+fn status_needs_no_server() {
+    let (client, _) = imported();
+    let work = scratch("status-offline");
+    clone(&client, "main", &work, None).unwrap();
+    // Point the state at a server nothing listens on; status must not care.
+    let mut state = crate::workcopy::load(&work).unwrap();
+    state.server = "http://127.0.0.1:1".to_owned();
+    crate::workcopy::save(&work, &mut state).unwrap();
+    fs::write(work.join("new.txt"), b"n\n").unwrap();
+    assert_eq!(
+        status(&work).unwrap(),
+        vec![("new.txt".to_owned(), StatusCode::Added)]
+    );
+}
+
+#[test]
+fn status_does_not_write_the_state() {
+    let (client, _) = imported();
+    let work = scratch("status-readonly");
+    clone(&client, "main", &work, None).unwrap();
+    // A touched-but-identical file would tempt a stat-cache refresh.
+    fs::write(work.join("README.md"), b"# demo\n").unwrap();
+    let before = fs::read(work.join(".opnscn/state.json")).unwrap();
+    status(&work).unwrap();
+    status(&work).unwrap();
+    assert_eq!(
+        fs::read(work.join(".opnscn/state.json")).unwrap(),
+        before,
+        "status must not write state"
+    );
+}
+
+#[test]
+fn status_outside_a_working_copy_fails() {
+    let root = scratch("status-not-a-copy");
+    assert!(matches!(status(&root), Err(Error::NotAWorkingCopy(_))));
 }
 
 #[test]

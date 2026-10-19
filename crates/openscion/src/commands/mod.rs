@@ -15,6 +15,10 @@
 //!   per level — and then the blobs in batches, verifying every id. With a
 //!   path it fetches only the trees on the way to that directory and the
 //!   files under it.
+//! - **status** ([`status`]) reports what a commit would record — the added,
+//!   modified, and deleted files — from local state alone, without touching
+//!   the server. It and `commit` classify a file the same way, so they never
+//!   disagree about what changed.
 //!
 //! The **query** commands ([`query`]) read what the server already knows —
 //! `stat`, `ls`, `cat`, `diff`, `log`, `ancestor`, and `merge-base` — and the
@@ -29,12 +33,14 @@ mod commit;
 mod import;
 mod landing;
 mod query;
+mod status;
 
 pub(crate) use clone::clone;
 pub(crate) use commit::commit;
 pub(crate) use import::import;
 pub(crate) use landing::{land, rebase, revert};
 pub(crate) use query::{DEFAULT_LOG_LIMIT, ancestor, cat, diff, log, ls, merge_base, stat};
+pub(crate) use status::status;
 
 use openscion_core::{FrameWriter, ObjectId};
 
