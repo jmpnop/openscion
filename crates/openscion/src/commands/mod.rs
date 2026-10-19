@@ -1,33 +1,58 @@
-//! The working-copy commands: `import`, `commit`, and `clone`.
+//! The `opnscn` commands over the server.
 //!
-//! Each command talks to the server through a [`ServerClient`] and to the
-//! disk through the working-copy module, and returns a summary the CLI
-//! prints.
+//! Each command talks to the server through a [`ServerClient`]; the
+//! working-copy commands also touch the disk. They fall into three groups:
+//!
+//! The **working-copy** commands move whole snapshots to and from a directory:
 //!
 //! - **import** records a whole directory as the repository's first
 //!   changeset and creates the ref.
 //! - **commit** records what changed since the base changeset and moves the
 //!   ref from the base to the new changeset by compare-and-swap. If someone
-//!   else moved it first the swap fails; there is no rebase yet, so the
-//!   changeset stays in the log unreferenced and the error is reported.
+//!   else moved it first the swap fails; the changeset stays in the log
+//!   unreferenced and the error is reported — `land` resolves such a race.
 //! - **clone** reads the ref, fetches the trees breadth first — one request
 //!   per level — and then the blobs in batches, verifying every id. With a
 //!   path it fetches only the trees on the way to that directory and the
 //!   files under it.
+//!
+//! The **query** commands ([`query`]) read what the server already knows —
+//! `stat`, `ls`, `cat`, `diff`, `log`, `ancestor`, and `merge-base` — and the
+//! **landing** commands ([`landing`]) move changes onto a new base — `rebase`,
+//! `revert`, and `land`. Both groups name their revisions by object id or ref
+//! name, resolved through [`resolve_rev`].
 //!
 //! [`ServerClient`]: crate::ServerClient
 
 mod clone;
 mod commit;
 mod import;
+mod landing;
+mod query;
 
 pub(crate) use clone::clone;
 pub(crate) use commit::commit;
 pub(crate) use import::import;
+pub(crate) use landing::{land, rebase, revert};
+pub(crate) use query::{DEFAULT_LOG_LIMIT, ancestor, cat, diff, log, ls, merge_base, stat};
 
 use openscion_core::{FrameWriter, ObjectId};
 
 use crate::{Result, ServerClient};
+
+/// Resolves a revision — a 64-hex object id, or a ref name the server resolves
+/// to its tip — into a changeset id.
+///
+/// # Errors
+///
+/// Returns the client error when a ref lookup fails or the server is
+/// unreachable.
+pub(crate) fn resolve_rev(client: &ServerClient, rev: &str) -> Result<ObjectId> {
+    match rev.parse::<ObjectId>() {
+        Ok(id) => Ok(id),
+        Err(_) => Ok(client.get_ref(rev)?.target),
+    }
+}
 
 /// Upload batches are cut at this many bytes of blob data.
 const UPLOAD_BATCH_BYTES: usize = 64 << 20;

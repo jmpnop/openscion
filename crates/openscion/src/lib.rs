@@ -11,6 +11,20 @@
 //! | `opnscn import [DIR]` | records a directory as the first changeset and creates `main` |
 //! | `opnscn commit -m MSG` | records what changed and moves `main` by compare-and-swap |
 //! | `opnscn clone DEST [--path DIR]` | fetches a snapshot, or one directory of it |
+//! | `opnscn stat PATH` | prints the entry at a path in a snapshot |
+//! | `opnscn ls [PATH]` | lists the entries under a path, with `--recursive` |
+//! | `opnscn cat PATH` | writes a file's bytes to standard output |
+//! | `opnscn diff FROM TO [PATHS…]` | prints the changes between two snapshots |
+//! | `opnscn log [PATH]` | prints first-parent history, newest first |
+//! | `opnscn ancestor A B` | prints whether `A` is an ancestor of `B` |
+//! | `opnscn merge-base A B` | prints a lowest common ancestor |
+//! | `opnscn rebase REV --onto REV` | rebases a changeset and prints the result |
+//! | `opnscn revert REV --onto REV` | reverts a changeset and prints the result |
+//! | `opnscn land REV [--ref NAME]` | moves a ref to include a changeset |
+//!
+//! Commands that read or move history name a revision by object id or ref
+//! name; a ref name resolves to its tip. The query and landing commands
+//! default that revision to `main`.
 //!
 //! A working copy keeps its state in `.opnscn/state.json`: the server, the ref,
 //! the base changeset, and each file's blob id and stat data, so a commit
@@ -41,6 +55,8 @@ mod error;
 mod test_support;
 mod workcopy;
 
-pub use cli::{Cli, Command, DEFAULT_AUTHOR, DEFAULT_REF, DEFAULT_SERVER, run};
+pub use cli::{
+    Cli, Command, DEFAULT_AUTHOR, DEFAULT_LAND_ATTEMPTS, DEFAULT_REF, DEFAULT_SERVER, run,
+};
 pub use client::ServerClient;
 pub use error::{Error, Result};

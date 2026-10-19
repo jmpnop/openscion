@@ -57,7 +57,7 @@ openscion-server = { path = "crates/openscion-server" }
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
 # The server's HTTP router. Only HTTP/1, JSON, and the tokio listener are used;
 # the default features add form, query, and tracing extractors nothing needs.
-axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
 # Command-line parsing for the `openscion-server` and `opnscn` binaries.
 clap = { version = "4", features = ["derive", "env"] }
 # The CLI's blocking HTTP client, and the server tests' client. TLS is off

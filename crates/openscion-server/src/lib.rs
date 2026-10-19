@@ -3,7 +3,7 @@
 //! In the architecture (`docs/specs/openscion-architecture.md`) the server owns
 //! the changeset log, the refs, and the derived-data indexes, and is the only
 //! component that creates changesets or moves refs. It serves the
-//! object, changeset, and ref operations over an in-memory
+//! object, changeset, ref, query, and landing operations over an in-memory
 //! [`openscion_core::Repository`]; a restart starts from an empty repository.
 //!
 //! # Endpoints
@@ -16,7 +16,10 @@
 //! | `POST` | `/v1/objects` | fetch a batch of trees and blobs as frames |
 //! | `POST` | `/v1/changesets` | create a changeset |
 //! | `GET` | `/v1/changesets/{id}` | read a changeset |
+//! | `GET` | `/v1/changesets/{id}/stat`, `/tree`, `/file` | query a snapshot |
+//! | `POST` | `/v1/diff`, `/v1/log`, `/v1/ancestor`, `/v1/merge-base` | query history |
 //! | `GET`, `POST` | `/v1/refs/{name}` | read a ref, or move it by compare-and-swap |
+//! | `POST` | `/v1/rebase`, `/v1/revert`, `/v1/land` | move changes onto a new base |
 //!
 //! The `api` module documents each body and status code.
 //!

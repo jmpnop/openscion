@@ -5,16 +5,72 @@
 use std::io::{self, Write};
 
 use clap::Parser;
-use openscion_core::PROTOCOL_VERSION;
+use openscion_core::{
+    Change, CreateChangeset, EntryKind, FrameWriter, ObjectId, ObjectKind, PROTOCOL_VERSION,
+    RepoPath, UpdateRef, object_id,
+};
 
 use super::{Cli, Command, DEFAULT_AUTHOR, DEFAULT_REF, DEFAULT_SERVER, run};
-use crate::Error;
 use crate::test_support::{real_server, scratch, unreachable_server};
+use crate::{Error, ServerClient};
 
 fn output(cli: &Cli) -> String {
     let mut out = Vec::new();
     run(cli, &mut out).unwrap();
     String::from_utf8(out).unwrap()
+}
+
+/// Runs a subcommand against `base` and returns its captured output.
+fn run_at(base: &str, args: &[&str]) -> String {
+    let mut full = vec!["opnscn", "--server", base];
+    full.extend_from_slice(args);
+    output(&Cli::try_parse_from(full).unwrap())
+}
+
+fn put(client: &ServerClient, bytes: &[u8]) -> ObjectId {
+    let id = object_id(ObjectKind::Blob, bytes);
+    let mut frames = FrameWriter::new();
+    frames.push(id, bytes);
+    client.upload_blobs(&frames.finish()).unwrap();
+    id
+}
+
+fn upsert(path: &str, blob: ObjectId) -> Change {
+    Change::Upsert {
+        path: RepoPath::new(path).unwrap(),
+        kind: EntryKind::File,
+        blob,
+    }
+}
+
+/// A server with `main` at a child changeset that rewrote `a.txt` and added
+/// `b.txt` over a root. Returns the base URL and the root and child ids.
+fn history() -> (String, ObjectId, ObjectId) {
+    let base = real_server();
+    let client = ServerClient::new(&base);
+    let one = put(&client, b"one");
+    let two = put(&client, b"two");
+    let b = put(&client, b"b");
+    let c1 = client
+        .create_changeset(&CreateChangeset::new(
+            vec![],
+            vec![upsert("a.txt", one)],
+            "t",
+            "root",
+        ))
+        .unwrap();
+    let c2 = client
+        .create_changeset(&CreateChangeset::new(
+            vec![c1.id],
+            vec![upsert("a.txt", two), upsert("b.txt", b)],
+            "t",
+            "edit",
+        ))
+        .unwrap();
+    client
+        .update_ref("main", UpdateRef::new(None, c2.id))
+        .unwrap();
+    (base, c1.id, c2.id)
 }
 
 #[test]
@@ -123,6 +179,108 @@ fn import_commit_and_clone_run_from_the_command_line() {
 fn clone_rejects_an_invalid_path() {
     let cli = Cli::try_parse_from(["opnscn", "clone", "x", "--path", "../up"]).unwrap();
     assert!(matches!(run(&cli, &mut Vec::new()), Err(Error::Engine(_))));
+}
+
+#[test]
+fn stat_ls_and_cat_read_a_snapshot() {
+    let (base, c1, _c2) = history();
+    let two = object_id(ObjectKind::Blob, b"two");
+
+    assert_eq!(run_at(&base, &["stat", "a.txt"]), format!("file {two}\n"));
+    assert_eq!(run_at(&base, &["stat", "missing"]), "absent\n".to_owned());
+    assert_eq!(run_at(&base, &["ls"]), "a.txt\nb.txt\n".to_owned());
+    // Against the root, only a.txt is there.
+    assert_eq!(
+        run_at(&base, &["stat", "b.txt", "--rev", &c1.to_string()]),
+        "absent\n".to_owned()
+    );
+    assert_eq!(run_at(&base, &["cat", "a.txt"]), "two".to_owned());
+}
+
+#[test]
+fn diff_log_ancestor_and_merge_base_read_history() {
+    let (base, c1, c2) = history();
+
+    assert_eq!(
+        run_at(&base, &["diff", &c1.to_string(), "main"]),
+        "+ a.txt\n+ b.txt\n".to_owned()
+    );
+    assert_eq!(
+        run_at(&base, &["diff", &c1.to_string(), "main", "b.txt"]),
+        "+ b.txt\n".to_owned()
+    );
+    assert_eq!(
+        run_at(&base, &["log", "--rev", "main"]),
+        format!("{c2} edit\n{c1} root\n")
+    );
+    assert_eq!(
+        run_at(&base, &["log", "--rev", "main", "--limit", "1"]),
+        format!("{c2} edit\n")
+    );
+    assert_eq!(
+        run_at(&base, &["ancestor", &c1.to_string(), "main"]),
+        "yes\n".to_owned()
+    );
+    assert_eq!(
+        run_at(&base, &["ancestor", "main", &c1.to_string()]),
+        "no\n".to_owned()
+    );
+    assert_eq!(
+        run_at(&base, &["merge-base", &c1.to_string(), "main"]),
+        format!("{c1}\n")
+    );
+}
+
+#[test]
+fn rebase_revert_and_land_move_changes() {
+    let (base, c1, c2) = history();
+    let client = ServerClient::new(&base);
+    let c = put(&client, b"c");
+    let side = client
+        .create_changeset(&CreateChangeset::new(
+            vec![c1],
+            vec![upsert("c.txt", c)],
+            "t",
+            "side",
+        ))
+        .unwrap();
+
+    // Rebasing the side branch onto main prints a fresh changeset id.
+    let rebased = run_at(&base, &["rebase", &side.id.to_string(), "--onto", "main"]);
+    let rebased: ObjectId = rebased.trim().parse().unwrap();
+    assert_ne!(rebased, side.id);
+
+    // Reverting main's edit onto main prints a fresh changeset id.
+    let reverted = run_at(
+        &base,
+        &["revert", &c2.to_string(), "--onto", "main", "-m", "undo"],
+    );
+    assert_eq!(reverted.trim().len(), 64);
+
+    // Landing a child of main advances the ref to version 2.
+    let tip = client
+        .create_changeset(&CreateChangeset::new(
+            vec![c2],
+            vec![upsert("d.txt", c)],
+            "t",
+            "tip",
+        ))
+        .unwrap();
+    assert_eq!(
+        run_at(&base, &["land", &tip.id.to_string()]),
+        format!("landed {} on main at version 2\n", tip.id)
+    );
+    assert_eq!(client.get_ref("main").unwrap().target, tip.id);
+}
+
+#[test]
+fn a_query_against_a_missing_ref_is_an_error() {
+    let base = real_server();
+    let cli = Cli::try_parse_from(["opnscn", "--server", &base, "ls", "--rev", "nope"]).unwrap();
+    assert!(matches!(
+        run(&cli, &mut Vec::new()),
+        Err(Error::Server { .. })
+    ));
 }
 
 #[test]

@@ -14,6 +14,10 @@
 //! - [`tree`] — [`TreeEntry`] and [`EntryKind`], what one directory holds.
 //! - [`changeset`] — [`CreateChangeset`], [`Changeset`], and their summaries.
 //! - [`refs`] — [`RefValue`] and the compare-and-swap [`UpdateRef`].
+//! - [`query`] — snapshot reads and history questions: [`StatResult`],
+//!   [`TreeListing`], [`DiffRequest`], [`LogRequest`], and their answers.
+//! - [`landing`] — [`RebaseRequest`], [`RevertRequest`], [`LandRequest`], and
+//!   their results.
 //! - [`transfer`] — the JSON halves of batched object upload and fetch.
 //! - [`failure`] — [`ErrorBody`], what every failed request carries.
 //! - [`server`] — [`ServerInfo`], what a server reports about itself.
@@ -57,8 +61,10 @@
 
 pub mod changeset;
 pub mod failure;
+pub mod landing;
 pub mod object;
 pub mod path;
+pub mod query;
 pub mod refs;
 pub mod server;
 pub mod transfer;
@@ -69,8 +75,13 @@ pub use changeset::{
     Change, Changeset, ChangesetInfo, ChangesetRecord, ChangesetSummary, CreateChangeset,
 };
 pub use failure::ErrorBody;
+pub use landing::{LandRequest, LandResult, RebaseRequest, RebaseResult, RevertRequest};
 pub use object::{ObjectId, ObjectKind, ParseIdError};
 pub use path::{PathError, RepoPath};
+pub use query::{
+    AncestorQuery, AncestorResult, DiffRequest, DiffResult, Entry, LogPage, LogRequest,
+    MergeBaseQuery, MergeBaseResult, StatResult, TreeListing,
+};
 pub use refs::{RefValue, UpdateRef};
 pub use server::ServerInfo;
 pub use transfer::{FetchObjects, StoredObjects};

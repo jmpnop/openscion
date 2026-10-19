@@ -12,12 +12,24 @@
 //! | `POST` | `/v1/objects` | `FetchObjects` | object frames, in request order |
 //! | `POST` | `/v1/changesets` | `CreateChangeset` | `ChangesetInfo` |
 //! | `GET` | `/v1/changesets/{id}` | — | `ChangesetRecord` |
+//! | `GET` | `/v1/changesets/{id}/stat` | `?path=` | `StatResult` |
+//! | `GET` | `/v1/changesets/{id}/tree` | `?path=&recursive=` | `TreeListing` |
+//! | `GET` | `/v1/changesets/{id}/file` | `?path=` | file bytes, or `404` |
+//! | `POST` | `/v1/diff` | `DiffRequest` | `DiffResult` |
+//! | `POST` | `/v1/log` | `LogRequest` | `LogPage` |
+//! | `POST` | `/v1/ancestor` | `AncestorQuery` | `AncestorResult` |
+//! | `POST` | `/v1/merge-base` | `MergeBaseQuery` | `MergeBaseResult` |
 //! | `GET` | `/v1/refs/{name}` | — | `RefValue` |
 //! | `POST` | `/v1/refs/{name}` | `UpdateRef` | `RefValue`, or `409` on conflict |
+//! | `POST` | `/v1/rebase` | `RebaseRequest` | `RebaseResult`, or `409` on conflict |
+//! | `POST` | `/v1/revert` | `RevertRequest` | `RebaseResult`, or `409` on conflict |
+//! | `POST` | `/v1/land` | `LandRequest` | `LandResult`, or `409` on conflict |
 //!
 //! Failures answer with an `ErrorBody`; see [`ApiError`] for the status codes.
 
 mod failure;
+mod landing;
+mod query;
 
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -47,7 +59,17 @@ pub(crate) fn routes() -> Router<SharedRepository> {
         .route("/v1/objects", post(fetch_objects))
         .route("/v1/changesets", post(create_changeset))
         .route("/v1/changesets/{id}", get(get_changeset))
+        .route("/v1/changesets/{id}/stat", get(query::stat))
+        .route("/v1/changesets/{id}/tree", get(query::list_tree))
+        .route("/v1/changesets/{id}/file", get(query::read_file))
+        .route("/v1/diff", post(query::diff))
+        .route("/v1/log", post(query::log))
+        .route("/v1/ancestor", post(query::is_ancestor))
+        .route("/v1/merge-base", post(query::merge_base))
         .route("/v1/refs/{*name}", get(get_ref).post(update_ref))
+        .route("/v1/rebase", post(landing::rebase))
+        .route("/v1/revert", post(landing::revert))
+        .route("/v1/land", post(landing::land))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
 }
 
@@ -55,11 +77,11 @@ pub(crate) fn routes() -> Router<SharedRepository> {
 // every engine call validates before it mutates. So a poisoned lock still
 // guards consistent data, and the server keeps serving rather than failing
 // every later request.
-fn read(repository: &SharedRepository) -> RwLockReadGuard<'_, Repository> {
+pub(super) fn read(repository: &SharedRepository) -> RwLockReadGuard<'_, Repository> {
     repository.read().unwrap_or_else(PoisonError::into_inner)
 }
 
-fn write(repository: &SharedRepository) -> RwLockWriteGuard<'_, Repository> {
+pub(super) fn write(repository: &SharedRepository) -> RwLockWriteGuard<'_, Repository> {
     repository.write().unwrap_or_else(PoisonError::into_inner)
 }
 

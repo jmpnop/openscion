@@ -79,8 +79,10 @@ pub use store::MemoryObjectStore;
 // these types; nothing here redefines them.
 pub use openscion_proto;
 pub use openscion_proto::{
-    Change, Changeset, ChangesetInfo, ChangesetRecord, ChangesetSummary, CreateChangeset,
-    EntryKind, ErrorBody, FetchObjects, ObjectId, ObjectKind, PROTOCOL_VERSION, ParseIdError,
-    PathError, RefValue, RepoPath, ServerInfo, StoredObjects, TreeEntry, UpdateRef, is_compatible,
-    server, version,
+    AncestorQuery, AncestorResult, Change, Changeset, ChangesetInfo, ChangesetRecord,
+    ChangesetSummary, CreateChangeset, DiffRequest, DiffResult, Entry, EntryKind, ErrorBody,
+    FetchObjects, LandRequest, LandResult, LogPage, LogRequest, MergeBaseQuery, MergeBaseResult,
+    ObjectId, ObjectKind, PROTOCOL_VERSION, ParseIdError, PathError, RebaseRequest, RebaseResult,
+    RefValue, RepoPath, RevertRequest, ServerInfo, StatResult, StoredObjects, TreeEntry,
+    TreeListing, UpdateRef, is_compatible, server, version,
 };

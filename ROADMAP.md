@@ -21,12 +21,16 @@ This page tracks where things stand.
 - **Server-side rebase and landing** ([plan](docs/plans/openscion-rebase-and-landing.md)):
   `Rebase`, `Revert`, and `Land` with its compare-and-swap retry loop and
   file-level conflict reporting.
+- **HTTP routes and `opnscn` subcommands** over the phase-2 and phase-3 engine
+  methods: the snapshot reads (`stat`, `tree`, `file`) and history questions
+  (`diff`, `log`, `ancestor`, `merge-base`) on the server, the landing routes
+  (`rebase`, `revert`, `land`), and the matching `opnscn stat`, `ls`, `cat`,
+  `diff`, `log`, `ancestor`, `merge-base`, `rebase`, `revert`, and `land`
+  commands, which name a revision by object id or ref name.
 
 ## Next
 
-1. **HTTP routes** over the phase-2 and phase-3 engine methods in
-   `openscion-server`, and the matching `opnscn` subcommands.
-2. **First-parent skip lists**, if query profiles show the generation-pruned
+1. **First-parent skip lists**, if query profiles show the generation-pruned
    walks need them.
 
 ## Later

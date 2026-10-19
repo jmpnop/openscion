@@ -3,14 +3,15 @@
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use openscion_core::{ErrorBody, ParseIdError};
+use openscion_core::{ErrorBody, ParseIdError, PathError};
 
-/// A failed API call: an engine error or a malformed id in the URL.
+/// A failed API call: an engine error, a malformed id in the URL, or an
+/// addressed file that is not there.
 ///
 /// | Error | Status |
 /// | --- | --- |
-/// | `NotFound` | `404` |
-/// | `RefConflict` | `409` |
+/// | `NotFound`, a missing file | `404` |
+/// | `RefConflict`, `MergeConflict` | `409` |
 /// | anything the caller sent wrong | `400` |
 #[derive(Debug)]
 #[non_exhaustive]
@@ -19,6 +20,8 @@ pub enum ApiError {
     Engine(openscion_core::Error),
     /// An id in the URL is not a valid object id.
     BadId(ParseIdError),
+    /// A snapshot has no file at the requested path.
+    NoFile(String),
 }
 
 impl From<openscion_core::Error> for ApiError {
@@ -33,6 +36,12 @@ impl From<ParseIdError> for ApiError {
     }
 }
 
+impl From<PathError> for ApiError {
+    fn from(error: PathError) -> Self {
+        Self::Engine(openscion_core::Error::InvalidPath(error))
+    }
+}
+
 impl ApiError {
     /// The status code and body this error answers with.
     #[must_use]
@@ -41,7 +50,7 @@ impl ApiError {
             Self::Engine(error) => {
                 let status = match error.code() {
                     "NotFound" => StatusCode::NOT_FOUND,
-                    "RefConflict" => StatusCode::CONFLICT,
+                    "RefConflict" | "MergeConflict" => StatusCode::CONFLICT,
                     _ => StatusCode::BAD_REQUEST,
                 };
                 (status, ErrorBody::new(error.code(), error.to_string()))
@@ -49,6 +58,10 @@ impl ApiError {
             Self::BadId(error) => (
                 StatusCode::BAD_REQUEST,
                 ErrorBody::new("InvalidArgument", error.to_string()),
+            ),
+            Self::NoFile(path) => (
+                StatusCode::NOT_FOUND,
+                ErrorBody::new("NotFound", format!("no file at {path:?}")),
             ),
         }
     }

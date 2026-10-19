@@ -8,8 +8,10 @@
 //! an import reuse connections instead of opening one each.
 
 use openscion_core::{
-    ChangesetInfo, ChangesetRecord, CreateChangeset, ErrorBody, FetchObjects, ObjectId, RefValue,
-    ServerInfo, StoredObjects, UpdateRef, is_compatible,
+    AncestorQuery, AncestorResult, ChangesetInfo, ChangesetRecord, CreateChangeset, DiffRequest,
+    DiffResult, ErrorBody, FetchObjects, LandRequest, LandResult, LogPage, LogRequest,
+    MergeBaseQuery, MergeBaseResult, ObjectId, RebaseRequest, RebaseResult, RefValue, RepoPath,
+    RevertRequest, ServerInfo, StatResult, StoredObjects, TreeListing, UpdateRef, is_compatible,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -148,6 +150,153 @@ impl ServerClient {
     /// [`Error::Server`] with code `RefConflict`.
     pub fn update_ref(&self, name: &str, update: UpdateRef) -> Result<RefValue> {
         self.post_json(&format!("/v1/refs/{name}"), &update)
+    }
+
+    /// Resolves `path` in a changeset's snapshot with
+    /// `GET /v1/changesets/{id}/stat`.
+    ///
+    /// # Errors
+    ///
+    /// As for [`ServerClient::upload_blobs`].
+    pub fn stat(&self, changeset: ObjectId, path: &str) -> Result<StatResult> {
+        let url = self.url(&format!("/v1/changesets/{changeset}/stat"));
+        json(&url, self.agent.get(&url).query("path", path).call())
+    }
+
+    /// Lists the entries under `path` (or the root) in a changeset's snapshot
+    /// with `GET /v1/changesets/{id}/tree`.
+    ///
+    /// # Errors
+    ///
+    /// As for [`ServerClient::upload_blobs`].
+    pub fn list_tree(
+        &self,
+        changeset: ObjectId,
+        path: Option<&str>,
+        recursive: bool,
+    ) -> Result<TreeListing> {
+        let url = self.url(&format!("/v1/changesets/{changeset}/tree"));
+        let mut request = self
+            .agent
+            .get(&url)
+            .query("recursive", if recursive { "true" } else { "false" });
+        if let Some(path) = path {
+            request = request.query("path", path);
+        }
+        json(&url, request.call())
+    }
+
+    /// Reads a file's bytes from a changeset's snapshot with
+    /// `GET /v1/changesets/{id}/file`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Request`] when the server cannot be reached,
+    /// [`Error::Server`] with code `NotFound` when the path names nothing or a
+    /// directory, and [`Error::Decode`] when the body cannot be read.
+    pub fn read_file(&self, changeset: ObjectId, path: &str) -> Result<Vec<u8>> {
+        let url = self.url(&format!("/v1/changesets/{changeset}/file"));
+        let mut response = checked(&url, self.agent.get(&url).query("path", path).call())?;
+        response
+            .body_mut()
+            .with_config()
+            .limit(u64::MAX)
+            .read_to_vec()
+            .map_err(|error| decode_error(&url, &error))
+    }
+
+    /// Diffs one snapshot into another with `POST /v1/diff`.
+    ///
+    /// # Errors
+    ///
+    /// As for [`ServerClient::upload_blobs`].
+    pub fn diff(&self, from: ObjectId, to: ObjectId, prefixes: &[&str]) -> Result<DiffResult> {
+        let prefixes = prefixes.iter().map(|p| (*p).to_owned()).collect();
+        self.post_json("/v1/diff", &DiffRequest::new(from, to, prefixes))
+    }
+
+    /// Walks first-parent history with `POST /v1/log`.
+    ///
+    /// # Errors
+    ///
+    /// As for [`ServerClient::upload_blobs`].
+    pub fn log(
+        &self,
+        from: ObjectId,
+        until: Option<ObjectId>,
+        path: Option<&RepoPath>,
+        limit: u64,
+    ) -> Result<LogPage> {
+        let mut request = LogRequest::new(from, limit);
+        request.until = until;
+        request.path = path.cloned();
+        self.post_json("/v1/log", &request)
+    }
+
+    /// Tests whether one changeset is an ancestor of another with
+    /// `POST /v1/ancestor`.
+    ///
+    /// # Errors
+    ///
+    /// As for [`ServerClient::upload_blobs`].
+    pub fn is_ancestor(&self, ancestor: ObjectId, descendant: ObjectId) -> Result<AncestorResult> {
+        self.post_json("/v1/ancestor", &AncestorQuery::new(ancestor, descendant))
+    }
+
+    /// Finds a lowest common ancestor of two changesets with
+    /// `POST /v1/merge-base`.
+    ///
+    /// # Errors
+    ///
+    /// As for [`ServerClient::upload_blobs`].
+    pub fn merge_base(&self, a: ObjectId, b: ObjectId) -> Result<MergeBaseResult> {
+        self.post_json("/v1/merge-base", &MergeBaseQuery::new(a, b))
+    }
+
+    /// Rebases a changeset onto another with `POST /v1/rebase`.
+    ///
+    /// # Errors
+    ///
+    /// As for [`ServerClient::upload_blobs`]; a conflict is [`Error::Server`]
+    /// with code `MergeConflict`.
+    pub fn rebase(&self, changeset: ObjectId, onto: ObjectId) -> Result<RebaseResult> {
+        self.post_json("/v1/rebase", &RebaseRequest::new(changeset, onto))
+    }
+
+    /// Reverts a changeset onto another with `POST /v1/revert`.
+    ///
+    /// # Errors
+    ///
+    /// As for [`ServerClient::rebase`].
+    pub fn revert(
+        &self,
+        changeset: ObjectId,
+        onto: ObjectId,
+        author: &str,
+        message: &str,
+    ) -> Result<RebaseResult> {
+        self.post_json(
+            "/v1/revert",
+            &RevertRequest::new(changeset, onto, author, message),
+        )
+    }
+
+    /// Lands a changeset on a ref by compare-and-swap with `POST /v1/land`.
+    ///
+    /// # Errors
+    ///
+    /// As for [`ServerClient::upload_blobs`]; a conflict is [`Error::Server`]
+    /// with code `MergeConflict`, and lost contention is code `RefConflict`.
+    pub fn land(
+        &self,
+        changeset: ObjectId,
+        ref_name: &str,
+        max_attempts: u32,
+    ) -> Result<LandResult> {
+        self.post_json(
+            "/v1/land",
+            &LandRequest::new(changeset, ref_name, max_attempts),
+        )
     }
 
     fn post_json<T: DeserializeOwned>(&self, path: &str, body: &impl Serialize) -> Result<T> {

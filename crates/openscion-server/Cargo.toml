@@ -22,6 +22,9 @@ path = "src/main.rs"
 openscion-core = { workspace = true }
 axum = { workspace = true }
 clap = { workspace = true }
+# The query routes deserialize their path and recursion flags from the URL
+# query string into typed param structs.
+serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 
@@ -29,7 +32,6 @@ tokio = { workspace = true }
 # The integration tests call a running server over real HTTP.
 ureq = { workspace = true }
 # The API tests send typed payloads as JSON bodies.
-serde = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]
