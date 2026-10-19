@@ -34,6 +34,9 @@ fn all() -> Vec<Error> {
             path: "/x".to_owned(),
             kind: std::io::ErrorKind::PermissionDenied,
         },
+        Error::Database {
+            message: "disk I/O error".to_owned(),
+        },
     ]
 }
 
@@ -48,6 +51,7 @@ fn renders_human_readable_messages() {
     assert_eq!(messages[5], format!("object {} hashes to {}", id(1), id(2)));
     assert_eq!(messages[6], "malformed tree: truncated");
     assert_eq!(messages[7], "storage error at /x: permission denied");
+    assert_eq!(messages[8], "metadata store error: disk I/O error");
     let conflict = Error::RefConflict {
         name: "main".to_owned(),
         current: Some(id(3)),
@@ -68,7 +72,8 @@ fn every_variant_has_a_stable_code() {
             "RefConflict",
             "CorruptObject",
             "Malformed",
-            "Storage"
+            "Storage",
+            "Database"
         ]
     );
 }

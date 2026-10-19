@@ -247,8 +247,11 @@ SQLite/fsync contracts, optionally adding an out-of-band QEMU/`dm-flakey` CI job
    re-home the current `Vec`/`HashMap`/`BTreeMap` log+ref logic into an in-memory
    `MetadataStore` impl; keep `MemoryObjectStore`. No behavior change — the full
    existing suite stays green. This is the load-bearing, highest-risk step.
-3. **Filesystem `ObjectStore`** (`std::fs` + `tempfile` + `rustix`), fanout
-   configurable, lazy object fsync batched before the referencing commit.
+3. **Filesystem `ObjectStore`** — shipped on **pure `std::fs`** (no `tempfile`
+   or `rustix` dependency after all): atomic `create_new` temp → `fsync` →
+   `rename` → directory `fsync`, git-style fanout, orphan-temp sweep on open.
+   `fsync`-on-put gives process-crash durability; macOS `F_FULLFSYNC` and lazy
+   batched (group) fsync are the documented follow-ups.
 4. **SQLite `MetadataStore`** (`rusqlite` bundled, WAL, single-statement CAS,
    AUTOINCREMENT LSN, derived-data table).
 5. **Crash-recovery tests** (failpoints + SIGKILL-child + durability contract).
@@ -258,3 +261,41 @@ SQLite/fsync contracts, optionally adding an out-of-band QEMU/`dm-flakey` CI job
 Group commit (batching fsync across concurrent lands), which the peer flagged as
 the throughput ceiling, is a follow-up optimization, not part of the first
 correct, durable cut.
+
+## 10. Later: the distributed MetadataStore and a propagation bus
+
+Phase 4 ships the single-node SQLite `MetadataStore`. The architecture names a
+*distributed* `MetadataStore` for the network tier (phase 7); because that port
+is a trait, any of these drops in behind it with no engine change — the same
+pattern as the `aether-lms-postgres` crate.
+
+**Distributed `MetadataStore` candidates** — all must satisfy the port's one
+hard rule: an atomic compare-and-swap on a *single* ref record, with no
+cross-record transaction.
+
+- **Postgres** (and a Rust Postgres such as `pgrust`). The spec's named option.
+  Ref CAS is `UPDATE … WHERE name=? AND target=?` (single row); the log is a
+  table with a `BIGSERIAL` LSN. Sharding is manual. `pgrust` is AGPL-3.0, which
+  would relicense a linked OpenScion to AGPL — a deliberate choice, and a reason
+  to prefer a wire client (`tokio-postgres`) over linking, so the backend can be
+  real Postgres *or* `pgrust` behind the same client.
+- **Cassandra / ScyllaDB.** The best structural match for "single-record CAS, no
+  cross-record transaction, shardable": its **lightweight transactions**
+  (`UPDATE … IF target=?`) are a Paxos CAS on one partition, and partitioning is
+  native rather than bolted on. Caveats: no global autoincrement, so the LSN
+  becomes a per-partition offset or a snowflake/timeuuid id and "the log" is
+  logical; and large blobs stay in the `ObjectStore` (S3/filesystem), not here.
+- **FoundationDB.** The spec's other option: ordered key-value with real
+  multi-key transactions, so CAS and a global monotonic version are both direct;
+  the cost is operating an FDB cluster.
+
+**A propagation bus (Kafka / Redpanda)** is *not* a `MetadataStore` — it has no
+point-lookup-by-id and no ref CAS — but a partition is an append-only log with
+monotonic offsets, so it is the natural firehose of landed changesets to the
+consumers the architecture already names: the DuckDB analytics plane
+([ADR 0002](../adr/0002-duckdb-analytics-plane.md)), regional caches,
+CI/code-search/review tools, and the Telegram cold tier
+([ADR 0003](../adr/0003-telegram-object-tier.md)). It fits as an adjacent
+consumer of the committed log, not as a backend; an event-sourced design (log =
+Kafka, point-lookup views = a KV store, plus a CAS store for refs) is possible
+only at extreme scale and is a large multi-component commitment.

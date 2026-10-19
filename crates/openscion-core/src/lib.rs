@@ -12,7 +12,8 @@
 //! - [`ObjectStore`] — the content-addressed blob and tree port, with the
 //!   in-memory [`MemoryObjectStore`] and the on-disk [`FilesystemObjectStore`].
 //! - [`MetadataStore`] — the changeset-log and ref port, with the in-memory
-//!   [`MemoryMetadataStore`].
+//!   [`MemoryMetadataStore`] and, behind the `sqlite` feature, a SQLite-backed
+//!   `SqliteMetadataStore`.
 //! - [`Repository`] — validation, root-tree derivation by path copying, the
 //!   append-only log, compare-and-swap refs, generation numbers, the snapshot
 //!   and history queries, and server-side rebase, revert, and landing, over the
@@ -21,9 +22,9 @@
 //!
 //! # What is deliberately not here
 //!
-//! The SQLite metadata store, the network tiers, git ingestion, and
-//! line-level blame and merge arrive in later phases. There is no transport:
-//! `openscion-server` puts this engine behind HTTP.
+//! The network tiers, git ingestion, and line-level blame and merge arrive in
+//! later phases. There is no transport: `openscion-server` puts this engine
+//! behind HTTP.
 //!
 //! # Layout
 //!
@@ -75,6 +76,8 @@ pub use clock::{Clock, FixedClock, SystemClock};
 pub use encoding::{FrameWriter, decode_frames, decode_tree, encode_changeset, encode_tree};
 pub use error::{Error, Result};
 pub use hash::object_id;
+#[cfg(feature = "sqlite")]
+pub use metastore::SqliteMetadataStore;
 pub use metastore::{Ancestry, MemoryMetadataStore, MetadataStore, NewChangeset, StoredChangeset};
 pub use repo::{MAX_CHANGES, MAX_TEXT, Repository};
 pub use store::{FilesystemObjectStore, MemoryObjectStore, ObjectStore};

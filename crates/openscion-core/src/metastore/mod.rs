@@ -7,9 +7,12 @@
 //! a cross-record transaction, which is what lets the store shard
 //! (`docs/specs/openscion-architecture.md`).
 //!
-//! [`MemoryMetadataStore`] keeps the log and refs in memory; a SQLite store
-//! implements the same trait in a later step. The engine holds one behind a
-//! `Box<dyn MetadataStore>`, so it never names a backend.
+//! [`MemoryMetadataStore`] keeps the log and refs in memory;
+//! [`SqliteMetadataStore`] (behind the `sqlite` feature) keeps them in a SQLite
+//! database. The engine holds one behind a `Box<dyn MetadataStore>`, so it
+//! never names a backend.
+//!
+//! [`SqliteMetadataStore`]: crate::SqliteMetadataStore
 //!
 //! The read methods come in three widths so a caller loads only what it needs:
 //! [`MetadataStore::info`] is the summary (id, sequence number, root tree),
@@ -17,6 +20,8 @@
 //! needs, and [`MetadataStore::record`] is the whole changeset.
 
 mod memory;
+#[cfg(feature = "sqlite")]
+mod sqlite;
 mod types;
 
 use openscion_proto::{ChangesetInfo, ObjectId, RefValue};
@@ -24,6 +29,8 @@ use openscion_proto::{ChangesetInfo, ObjectId, RefValue};
 use crate::Result;
 
 pub use memory::MemoryMetadataStore;
+#[cfg(feature = "sqlite")]
+pub use sqlite::SqliteMetadataStore;
 pub use types::{Ancestry, NewChangeset, StoredChangeset};
 
 /// The changeset log, the refs, and (later) derived-data values.

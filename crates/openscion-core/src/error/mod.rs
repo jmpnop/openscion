@@ -75,6 +75,13 @@ pub enum Error {
         /// The kind of I/O error.
         kind: std::io::ErrorKind,
     },
+    /// A metadata store backed by a database could not complete an operation.
+    /// The driver's message is kept as text so the error stays comparable.
+    #[error("metadata store error: {message}")]
+    Database {
+        /// What the database driver reported.
+        message: String,
+    },
 }
 
 fn display_target(current: Option<ObjectId>) -> String {
@@ -94,6 +101,7 @@ impl Error {
             Self::Malformed { .. } => "Malformed",
             Self::MergeConflict { .. } => "MergeConflict",
             Self::Storage { .. } => "Storage",
+            Self::Database { .. } => "Database",
         }
     }
 }

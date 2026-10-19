@@ -20,9 +20,17 @@ openscion-proto = { workspace = true }
 thiserror = { workspace = true }
 # Hashes canonical encodings into object ids.
 blake3 = { workspace = true }
+# The SQLite-backed `MetadataStore`, behind the opt-in `sqlite` feature. Bundled
+# so builds link a pinned SQLite rather than a system one.
+rusqlite = { workspace = true, optional = true }
+# Serializes a changeset into a row payload for the SQLite store. Only the
+# `sqlite` feature needs it; the in-memory stores keep changesets in memory.
+serde_json = { workspace = true, optional = true }
 
 [features]
 default = []
+# A persistent metadata store backed by SQLite (`SqliteMetadataStore`).
+sqlite = ["dep:rusqlite", "dep:serde_json"]
 
 [lints]
 workspace = true

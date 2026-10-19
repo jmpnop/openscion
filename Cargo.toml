@@ -17,7 +17,7 @@ exclude = ["worktrees"]
 [workspace.package]
 version = "0.2.1"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.90"
 license = "GPL-3.0-only"
 repository = "https://github.com/tinyhumansai/openscion"
 
@@ -45,6 +45,10 @@ openscion-core = { path = "crates/openscion-core", version = "0.2.1" }
 # canonical encoding (`docs/specs/openscion-data-model.md#object-identifiers`).
 # The CLI hashes working-copy files with it through the engine.
 blake3 = "1"
+# The SQLite-backed metadata store, behind openscion-core's opt-in `sqlite`
+# feature. `bundled` compiles a pinned SQLite instead of linking the system
+# one, so builds are reproducible and need no system library.
+rusqlite = { version = "0.37", features = ["bundled"] }
 # The CLI, taken by the benchmarks to drive `opnscn` in-process. Unpublished
 # consumers only, so it needs no `version`.
 openscion = { path = "crates/openscion" }
