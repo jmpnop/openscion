@@ -11,14 +11,15 @@
 //!   encodings, and [`FrameWriter`] / [`decode_frames`] for batched transfer.
 //! - [`MemoryObjectStore`] — blobs and trees by id.
 //! - [`Repository`] — validation, root-tree derivation by path copying, the
-//!   append-only log, and compare-and-swap refs.
+//!   append-only log, compare-and-swap refs, generation numbers, the snapshot
+//!   and history queries, and server-side rebase, revert, and landing.
 //! - [`Clock`] — the time port, with [`SystemClock`] and [`FixedClock`].
 //!
 //! # What is deliberately not here
 //!
-//! Persistence, derived data beyond root trees (generation numbers, skip
-//! lists, path history), rebase, and landing arrive in later phases. There is
-//! no transport: `openscion-server` puts this engine behind HTTP.
+//! Persistence, the network tiers, git ingestion, and line-level blame and
+//! merge arrive in later phases. There is no transport: `openscion-server` puts
+//! this engine behind HTTP.
 //!
 //! # Layout
 //!
@@ -78,7 +79,8 @@ pub use store::MemoryObjectStore;
 // these types; nothing here redefines them.
 pub use openscion_proto;
 pub use openscion_proto::{
-    Change, Changeset, ChangesetInfo, ChangesetRecord, CreateChangeset, EntryKind, ErrorBody,
-    FetchObjects, ObjectId, ObjectKind, PROTOCOL_VERSION, ParseIdError, PathError, RefValue,
-    RepoPath, ServerInfo, StoredObjects, TreeEntry, UpdateRef, is_compatible, server, version,
+    Change, Changeset, ChangesetInfo, ChangesetRecord, ChangesetSummary, CreateChangeset,
+    EntryKind, ErrorBody, FetchObjects, ObjectId, ObjectKind, PROTOCOL_VERSION, ParseIdError,
+    PathError, RefValue, RepoPath, ServerInfo, StoredObjects, TreeEntry, UpdateRef, is_compatible,
+    server, version,
 };

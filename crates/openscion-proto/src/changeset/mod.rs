@@ -8,7 +8,9 @@
 
 mod types;
 
-pub use types::{Change, Changeset, ChangesetInfo, ChangesetRecord, CreateChangeset};
+pub use types::{
+    Change, Changeset, ChangesetInfo, ChangesetRecord, ChangesetSummary, CreateChangeset,
+};
 
 #[cfg(test)]
 mod test;

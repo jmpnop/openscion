@@ -58,6 +58,13 @@ pub enum Error {
         /// What is wrong with it.
         reason: &'static str,
     },
+    /// A rebase, revert, or land found paths changed on both sides. It created
+    /// nothing; the caller resolves the paths and retries.
+    #[error("merge conflict on {} path(s)", .paths.len())]
+    MergeConflict {
+        /// Every conflicting path, sorted and deduplicated.
+        paths: Vec<String>,
+    },
 }
 
 fn display_target(current: Option<ObjectId>) -> String {
@@ -75,6 +82,7 @@ impl Error {
             Self::RefConflict { .. } => "RefConflict",
             Self::CorruptObject { .. } => "CorruptObject",
             Self::Malformed { .. } => "Malformed",
+            Self::MergeConflict { .. } => "MergeConflict",
         }
     }
 }

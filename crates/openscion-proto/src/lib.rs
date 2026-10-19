@@ -65,7 +65,9 @@ pub mod transfer;
 pub mod tree;
 pub mod version;
 
-pub use changeset::{Change, Changeset, ChangesetInfo, ChangesetRecord, CreateChangeset};
+pub use changeset::{
+    Change, Changeset, ChangesetInfo, ChangesetRecord, ChangesetSummary, CreateChangeset,
+};
 pub use failure::ErrorBody;
 pub use object::{ObjectId, ObjectKind, ParseIdError};
 pub use path::{PathError, RepoPath};

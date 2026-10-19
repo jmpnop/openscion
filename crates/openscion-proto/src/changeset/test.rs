@@ -2,7 +2,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use super::{Change, Changeset, ChangesetInfo, ChangesetRecord, CreateChangeset};
+use super::{Change, Changeset, ChangesetInfo, ChangesetRecord, ChangesetSummary, CreateChangeset};
 use crate::{EntryKind, ObjectId, RepoPath};
 
 fn id(byte: u8) -> ObjectId {
@@ -11,6 +11,21 @@ fn id(byte: u8) -> ObjectId {
 
 fn path(text: &str) -> RepoPath {
     RepoPath::new(text).unwrap()
+}
+
+#[test]
+fn changeset_summary_pins_its_wire_form() {
+    let summary = ChangesetSummary::new(id(7), vec![id(1), id(2)], "agent", "land it", 1_700);
+    let json = serde_json::json!({
+        "id": id(7).to_string(),
+        "parents": [id(1).to_string(), id(2).to_string()],
+        "author": "agent",
+        "message": "land it",
+        "created_at": 1_700,
+    });
+    assert_eq!(serde_json::to_value(&summary).unwrap(), json);
+    let decoded: ChangesetSummary = serde_json::from_value(json).unwrap();
+    assert_eq!(decoded, summary);
 }
 
 #[test]

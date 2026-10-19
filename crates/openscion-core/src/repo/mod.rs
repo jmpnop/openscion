@@ -6,10 +6,19 @@
 //! (`docs/specs/openscion-data-model.md`). Everything is in memory; there is no
 //! persistence yet.
 //!
-//! Not here yet: generation numbers, skip lists, path history,
-//! rebase, and landing. A ref conflict is reported, not retried.
+//! Each appended changeset carries a generation number, which bounds the
+//! ancestry walks. The read queries ([`query`]) — `stat`, `list_tree`,
+//! `read_file`, `diff`, `log`, `is_ancestor`, `merge_base` — resolve paths and
+//! walk history on the server without a checkout. Landing ([`rebase`]) — rebase,
+//! revert, and `land` with its compare-and-swap retry loop — moves work onto a
+//! ref without a global lock.
+//!
+//! Not here yet: persistent stores, first-parent skip lists (the generation
+//! numbers already bound the walks), and line-level merge.
 
 mod derive;
+mod query;
+mod rebase;
 mod types;
 
 use std::collections::{BTreeMap, HashMap};
@@ -153,8 +162,22 @@ impl Repository {
         };
         let root_tree = derive::derive_root_tree(&mut self.objects, base, &changeset.changes)?;
         let info = ChangesetInfo::new(id, self.log.len() as u64 + 1, root_tree);
+        // Parents were validated to be in the log, so `entry` cannot fail here.
+        let generation = changeset
+            .parents
+            .iter()
+            .map(|parent| self.entry(*parent).map(|e| e.generation))
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .max()
+            .unwrap_or(0)
+            + 1;
         self.index.insert(id, self.log.len());
-        self.log.push(LogEntry { info, changeset });
+        self.log.push(LogEntry {
+            info,
+            changeset,
+            generation,
+        });
         Ok(info)
     }
 
@@ -217,6 +240,17 @@ impl Repository {
     pub fn changeset(&self, id: ObjectId) -> Result<ChangesetRecord> {
         let entry = self.entry(id)?;
         Ok(ChangesetRecord::new(entry.info, entry.changeset.clone()))
+    }
+
+    /// A changeset's generation: the longest path in changesets from a root to
+    /// it, `1` for a root. A descendant always has a strictly greater
+    /// generation, which is what bounds ancestry searches.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotFound`] when no changeset has this id.
+    pub fn generation(&self, id: ObjectId) -> Result<u64> {
+        Ok(self.entry(id)?.generation)
     }
 
     /// A ref's current value.

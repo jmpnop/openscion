@@ -109,6 +109,42 @@ impl Changeset {
     }
 }
 
+/// One row of a `Log`: enough to describe a changeset without its changes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ChangesetSummary {
+    /// The changeset's id.
+    pub id: ObjectId,
+    /// Its parents, first parent first.
+    pub parents: Vec<ObjectId>,
+    /// Who wrote it.
+    pub author: String,
+    /// The description.
+    pub message: String,
+    /// Creation time, milliseconds since the Unix epoch.
+    pub created_at: u64,
+}
+
+impl ChangesetSummary {
+    /// Builds a summary.
+    #[must_use]
+    pub fn new(
+        id: ObjectId,
+        parents: Vec<ObjectId>,
+        author: impl Into<String>,
+        message: impl Into<String>,
+        created_at: u64,
+    ) -> Self {
+        Self {
+            id,
+            parents,
+            author: author.into(),
+            message: message.into(),
+            created_at,
+        }
+    }
+}
+
 /// What the server answers after appending a changeset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]

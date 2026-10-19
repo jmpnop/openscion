@@ -14,18 +14,28 @@ This page tracks where things stand.
   derivation by path copying; the server's object, changeset, and ref routes;
   `opnscn import`, `commit`, and `clone` (including one-directory clones); and an
   OpenScion backend in `openscion-bench`.
+- **Derived data and queries** ([plan](docs/plans/openscion-derived-data.md)):
+  generation numbers; `Stat`, `ListTree`, `ReadFile`, `Diff`, `Log` with path
+  history, `IsAncestor`, and `MergeBase` on the in-memory engine, the last two
+  checked against a brute-force walk on randomized histories.
+- **Server-side rebase and landing** ([plan](docs/plans/openscion-rebase-and-landing.md)):
+  `Rebase`, `Revert`, and `Land` with its compare-and-swap retry loop and
+  file-level conflict reporting.
 
 ## Next
 
-1. **Derived data and queries.** Generation numbers, skip lists, path history,
-   `Log`, `Diff`, `MergeBase`, `IsAncestor`, `ListTree`, `Stat`.
-2. **Server-side rebase and landing.** `Rebase`, `Land`, `Revert`, file-level
-   conflicts.
+1. **HTTP routes** over the phase-2 and phase-3 engine methods in
+   `openscion-server`, and the matching `opnscn` subcommands.
+2. **First-parent skip lists**, if query profiles show the generation-pruned
+   walks need them.
 
 ## Later
 
 Persistent stores, the `opnscn` client and node daemon, git ingestion, network
-tiers, line-level blame and merge, virtual checkouts, read access control.
+tiers, line-level blame and merge, virtual checkouts, read access control. A
+DuckDB-backed analytics plane ([ADR 0002](docs/adr/0002-duckdb-analytics-plane.md))
+and a Telegram cold object tier ([ADR 0003](docs/adr/0003-telegram-object-tier.md))
+are optional adjacent systems, not part of the serving path.
 
 ## Out Of Scope
 
