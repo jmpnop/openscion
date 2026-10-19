@@ -1,0 +1,26 @@
+[package]
+name = "openscion-insights"
+description = "Optional analytics plane over OpenScion history, backed by DuckDB."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# An adjacent, read-only analytics tool, not part of the serving path and not a
+# client library. It is never published (see ADR 0002).
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# The protocol payload types: this crate ingests `ChangesetRecord`s exported
+# from the log and never touches the engine or a store directly (ADR 0002).
+openscion-proto.workspace = true
+# Derive macros for this crate's error type, as the other crates use.
+thiserror.workspace = true
+# The analytics engine: an embedded, columnar, Parquet-native SQL database. The
+# `bundled` feature compiles DuckDB from source, so the crate needs no system
+# library and builds the same everywhere. This is the one heavy dependency, and
+# it is confined to this unpublished crate, off the serving path.
+duckdb = { version = "1", features = ["bundled"] }
