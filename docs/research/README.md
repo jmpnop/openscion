@@ -12,3 +12,4 @@ means for OpenScion.
 | [git transfer and scaling](git-transfer-and-scaling.md) | protocol v2, negotiation, shallow and partial clone, Scalar and VFS for Git, Piper, Sapling and Mononoke |
 | [GitHub](github.md) | Spokes replication, fork networks, maintenance, pull requests, merge queue, the git database API |
 | [GitLab](gitlab.md) | Gitaly and Praefect, object pools, merge requests, merge trains, the Commits API |
+| [storage persistence](storage-persistence.md) | phase-4 source material: the two-port design, how git/Mononoke/jj/Piper and peer Scion clones persist, and the filesystem + SQLite recommendation |
