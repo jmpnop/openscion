@@ -69,15 +69,28 @@ This page tracks where things stand.
   `Sparse` type — is shared by clone, add, and remove, the set stays a
   normalized antichain, and a working copy written with the earlier
   single-string form still loads. Third chunk of phase 5.
+- **Daemon node-local store and snapshot boot**
+  ([spec](docs/specs/openscion-daemon-node-store.md),
+  [plan](docs/plans/openscion-daemon-node-store.md)): the new `openscion-daemon`
+  crate's `NodeStore` — a bounded, read-through cache of immutable objects
+  behind a single `get`, with `snapshot`/`warm` so a fresh node starts warm. It
+  serves a local copy or fetches from the tier above (an `ObjectSource`),
+  verifies the bytes against the id by recovering the kind, caches within a byte
+  budget, and evicts least-recently-used; the index lock is never held across an
+  upstream fetch or a disk write. Chose the deep read-through module via a POSD
+  Design-It-Twice pass; the transport decision is recorded in
+  [ADR 0004](docs/adr/0004-daemon-transport.md). Fourth chunk of phase 5.
 
 ## Next
 
-1. **Node daemon** (phase 5, concluding): the node-local object/metadata store
-   and snapshot boot. The client side of phase 5 is done — `clone` (sparse or
-   full), `status`, `watch`, `sparse` add/remove, `commit`, and `land`. The
-   daemon's transport (client-to-daemon over a local socket, and
-   daemon-to-cache between machines) is still an open architecture question to
-   settle before it is built.
+1. **Daemon transport and client (phase 5, concluding):** the framed
+   `openscion-proto` transport ([ADR 0004](docs/adr/0004-daemon-transport.md)) —
+   a length-prefixed stream codec, a Unix-socket listener serving the uniform
+   object RPCs from the `NodeStore`, and a client the daemon uses to reach the
+   tier above (an `ObjectSource` over the socket). With it the daemon runs as a
+   process. The rest of phase 5 is done: the client (`clone` sparse or full,
+   `status`, `watch`, `sparse` add/remove, `commit`, `land`) and the node-local
+   store with snapshot boot.
 
 ## Later
 

@@ -1,0 +1,20 @@
+[package]
+name = "openscion-daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The OpenScion node daemon: a per-machine, bounded, read-through object store."
+# Not published to crates.io; it ships as a server-side binary with its phase.
+publish = false
+
+[dependencies]
+# The engine, for object ids and BLAKE3 hashing (object_id, ObjectId,
+# ObjectKind) used to verify objects fetched from the tier above.
+openscion-core = { workspace = true }
+# The crate-wide error type.
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

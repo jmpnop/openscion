@@ -31,3 +31,6 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a test-first sample
   filesystem-watcher-backed live status (phase 5).
 - [`openscion-client-sparse.md`](openscion-client-sparse.md) — `opnscn sparse`,
   first-class sparse-set management: show, add, remove (phase 5).
+- [`openscion-daemon-node-store.md`](openscion-daemon-node-store.md) — the
+  daemon's bounded, read-through node-local object store and snapshot boot
+  (phase 5).
