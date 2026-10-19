@@ -10,7 +10,7 @@
 //! - [`encode_tree`], [`decode_tree`], [`encode_changeset`] — the canonical
 //!   encodings, and [`FrameWriter`] / [`decode_frames`] for batched transfer.
 //! - [`ObjectStore`] — the content-addressed blob and tree port, with the
-//!   in-memory [`MemoryObjectStore`].
+//!   in-memory [`MemoryObjectStore`] and the on-disk [`FilesystemObjectStore`].
 //! - [`MetadataStore`] — the changeset-log and ref port, with the in-memory
 //!   [`MemoryMetadataStore`].
 //! - [`Repository`] — validation, root-tree derivation by path copying, the
@@ -21,9 +21,9 @@
 //!
 //! # What is deliberately not here
 //!
-//! The filesystem and SQLite store implementations, the network tiers, git
-//! ingestion, and line-level blame and merge arrive in later phases. There is
-//! no transport: `openscion-server` puts this engine behind HTTP.
+//! The SQLite metadata store, the network tiers, git ingestion, and
+//! line-level blame and merge arrive in later phases. There is no transport:
+//! `openscion-server` puts this engine behind HTTP.
 //!
 //! # Layout
 //!
@@ -77,7 +77,7 @@ pub use error::{Error, Result};
 pub use hash::object_id;
 pub use metastore::{Ancestry, MemoryMetadataStore, MetadataStore, NewChangeset, StoredChangeset};
 pub use repo::{MAX_CHANGES, MAX_TEXT, Repository};
-pub use store::{MemoryObjectStore, ObjectStore};
+pub use store::{FilesystemObjectStore, MemoryObjectStore, ObjectStore};
 
 // The protocol, re-exported by module rather than by item so every path
 // through this crate resolves to the same definitions the protocol crate

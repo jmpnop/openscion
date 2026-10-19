@@ -65,6 +65,16 @@ pub enum Error {
         /// Every conflicting path, sorted and deduplicated.
         paths: Vec<String>,
     },
+    /// A backing store (the filesystem, or later a database) could not complete
+    /// an operation. The kind is retained; the full OS error is logged, not
+    /// surfaced, so the error stays comparable.
+    #[error("storage error at {path}: {kind}")]
+    Storage {
+        /// The path or location the operation touched.
+        path: String,
+        /// The kind of I/O error.
+        kind: std::io::ErrorKind,
+    },
 }
 
 fn display_target(current: Option<ObjectId>) -> String {
@@ -83,6 +93,7 @@ impl Error {
             Self::CorruptObject { .. } => "CorruptObject",
             Self::Malformed { .. } => "Malformed",
             Self::MergeConflict { .. } => "MergeConflict",
+            Self::Storage { .. } => "Storage",
         }
     }
 }

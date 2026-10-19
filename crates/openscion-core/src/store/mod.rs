@@ -4,10 +4,11 @@
 //! immutable, so a put of an object already present is a no-op and the id is
 //! the content's address — the store needs only put-if-absent and get-by-id
 //! (`docs/specs/openscion-architecture.md`). [`MemoryObjectStore`] keeps every
-//! object in memory; a filesystem store implements the same trait in a later
-//! step. The engine holds one behind a `Box<dyn ObjectStore>`, so it never
-//! names a backend.
+//! object in memory; [`FilesystemObjectStore`] keeps each object in a file
+//! under a directory tree. The engine holds one behind a `Box<dyn ObjectStore>`,
+//! so it never names a backend.
 
+mod filesystem;
 mod memory;
 
 use std::sync::Arc;
@@ -16,6 +17,7 @@ use openscion_proto::{ObjectId, ObjectKind};
 
 use crate::Result;
 
+pub use filesystem::FilesystemObjectStore;
 pub use memory::MemoryObjectStore;
 
 /// A store of immutable, content-addressed objects.
