@@ -34,11 +34,19 @@ This page tracks where things stand.
   single-statement ref compare-and-swap, autoincrement LSN); crash-recovery
   tests across an abrupt kill; and `openscion-server --data-dir`, so history
   survives a restart. (MSRV raised to 1.90 for `rusqlite`.)
+- **First-parent skip lists** ([spec](docs/specs/openscion-data-model.md#derived-data)):
+  an eager derived kind storing each changeset's first-parent ancestor at
+  distance 2^k, in both metadata stores, so `is_first_parent_ancestor` jumps the
+  history in O(log n) and `is_ancestor` and `merge_base` take that fast path.
+  Profiling first confirmed the need: a single `is_ancestor` down a 100k-deep
+  linear spine was ~1 s on the SQLite store (one lookup per hop); the skip list
+  makes the same question ~30 lookups. This completes the derived-data phase.
 
 ## Next
 
-1. **First-parent skip lists**, if query profiles show the generation-pruned
-   walks need them.
+1. **`opnscn` client and node daemon**: sparse checkout, status via a filesystem
+   watcher, commit, and land in the client; the daemon's node-local store and
+   snapshot boot.
 
 ## Later
 
