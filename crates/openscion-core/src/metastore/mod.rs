@@ -14,10 +14,12 @@
 //!
 //! [`SqliteMetadataStore`]: crate::SqliteMetadataStore
 //!
-//! The read methods come in three widths so a caller loads only what it needs:
+//! The read methods come in widths so a caller loads only what it needs:
 //! [`MetadataStore::info`] is the summary (id, sequence number, root tree),
 //! [`MetadataStore::ancestry`] is the generation and parents an ancestry walk
-//! needs, and [`MetadataStore::record`] is the whole changeset.
+//! needs, [`MetadataStore::first_parent_skips`] is the skip list a first-parent
+//! ancestry walk jumps along, and [`MetadataStore::record`] is the whole
+//! changeset.
 
 mod memory;
 #[cfg(feature = "sqlite")]
@@ -56,6 +58,15 @@ pub trait MetadataStore: Send + Sync + std::fmt::Debug {
     ///
     /// Returns a backing-store error when the lookup fails.
     fn ancestry(&self, id: ObjectId) -> Result<Option<Ancestry>>;
+
+    /// The first-parent skip list of the changeset with this id: index `k` is
+    /// the first-parent ancestor `2^k` changesets back, so first-parent
+    /// ancestry runs in O(log n). Empty for a root. `None` when none has it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a backing-store error when the lookup fails.
+    fn first_parent_skips(&self, id: ObjectId) -> Result<Option<Vec<ObjectId>>>;
 
     /// The whole changeset with this id, or `None` when none has it.
     ///

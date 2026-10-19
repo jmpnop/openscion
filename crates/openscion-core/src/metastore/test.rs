@@ -21,6 +21,7 @@ fn append(store: &mut MemoryMetadataStore, byte: u8, parents: Vec<ObjectId>, gen
             root_tree: id(100 + byte),
             changeset: changeset(parents),
             generation,
+            skips: Vec::new(),
         })
         .unwrap();
 }
@@ -59,6 +60,36 @@ fn an_unknown_id_reads_as_none() {
     assert!(store.info(id(9)).unwrap().is_none());
     assert!(store.ancestry(id(9)).unwrap().is_none());
     assert!(store.record(id(9)).unwrap().is_none());
+    assert!(store.first_parent_skips(id(9)).unwrap().is_none());
+}
+
+#[test]
+fn the_skip_list_round_trips() {
+    let mut store = MemoryMetadataStore::new();
+    store
+        .append(NewChangeset {
+            id: id(1),
+            root_tree: id(101),
+            changeset: changeset(vec![]),
+            generation: 1,
+            skips: Vec::new(),
+        })
+        .unwrap();
+    store
+        .append(NewChangeset {
+            id: id(3),
+            root_tree: id(103),
+            changeset: changeset(vec![id(1)]),
+            generation: 2,
+            skips: vec![id(1)],
+        })
+        .unwrap();
+    assert!(store.first_parent_skips(id(1)).unwrap().unwrap().is_empty());
+    assert_eq!(
+        store.first_parent_skips(id(3)).unwrap().unwrap(),
+        vec![id(1)]
+    );
+    assert_eq!(store.record(id(3)).unwrap().unwrap().skips, vec![id(1)]);
 }
 
 #[test]
@@ -121,6 +152,7 @@ mod sqlite {
             root_tree: id(100 + byte),
             changeset: changeset(parents),
             generation,
+            skips: Vec::new(),
         }
     }
 
@@ -147,6 +179,64 @@ mod sqlite {
         assert!(store.info(id(9)).unwrap().is_none());
         assert!(store.ancestry(id(9)).unwrap().is_none());
         assert!(store.record(id(9)).unwrap().is_none());
+    }
+
+    #[test]
+    fn the_skip_list_persists_and_reads_back() {
+        let mut store = SqliteMetadataStore::in_memory().unwrap();
+        store.append(new_cs(1, vec![], 1)).unwrap();
+        store
+            .append(NewChangeset {
+                id: id(3),
+                root_tree: id(103),
+                changeset: changeset(vec![id(1)]),
+                generation: 2,
+                skips: vec![id(1)],
+            })
+            .unwrap();
+        assert!(store.first_parent_skips(id(1)).unwrap().unwrap().is_empty());
+        assert_eq!(
+            store.first_parent_skips(id(3)).unwrap().unwrap(),
+            vec![id(1)]
+        );
+        assert_eq!(store.record(id(3)).unwrap().unwrap().skips, vec![id(1)]);
+        assert!(store.first_parent_skips(id(9)).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_database_written_before_skip_lists_gains_the_column() {
+        let path = scratch_db();
+        // Build a changesets table without the skips column, as the pre-skip
+        // schema did, and insert a row; reopening through the store migrates it.
+        {
+            let raw = rusqlite::Connection::open(&path).unwrap();
+            raw.execute_batch(
+                "CREATE TABLE changesets (
+                     lsn        INTEGER PRIMARY KEY AUTOINCREMENT,
+                     id         TEXT NOT NULL UNIQUE,
+                     root_tree  TEXT NOT NULL,
+                     generation INTEGER NOT NULL,
+                     parents    TEXT NOT NULL,
+                     payload    TEXT NOT NULL
+                 );",
+            )
+            .unwrap();
+            raw.execute(
+                "INSERT INTO changesets (id, root_tree, generation, parents, payload)
+                 VALUES (?1, ?2, 1, '[]', ?3)",
+                rusqlite::params![
+                    id(1).to_string(),
+                    id(101).to_string(),
+                    serde_json::to_string(&changeset(vec![])).unwrap(),
+                ],
+            )
+            .unwrap();
+        }
+        let store = SqliteMetadataStore::open(&path).unwrap();
+        // The migrated row reads back with an empty skip list, not an error.
+        assert!(store.first_parent_skips(id(1)).unwrap().unwrap().is_empty());
+        assert_eq!(store.record(id(1)).unwrap().unwrap().generation, 1);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

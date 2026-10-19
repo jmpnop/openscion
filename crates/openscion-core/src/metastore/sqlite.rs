@@ -14,7 +14,8 @@ use super::{Ancestry, MetadataStore, NewChangeset, StoredChangeset};
 /// key is the log sequence number, and one `refs` table with one row per ref.
 /// Each changeset keeps its generation and parents as columns so an ancestry
 /// walk reads them without decoding the whole changeset, and the full changeset
-/// as a JSON payload.
+/// as a JSON payload. The first-parent skip list is a further column added by a
+/// guarded migration in [`SqliteMetadataStore::from_connection`].
 const SCHEMA: &str = "\
 CREATE TABLE IF NOT EXISTS changesets (
     lsn        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,6 +71,18 @@ impl SqliteMetadataStore {
              PRAGMA busy_timeout = 5000;",
         )?;
         conn.execute_batch(SCHEMA)?;
+        // Add the first-parent skip-list column. Done as a guarded `ALTER`, not
+        // in `SCHEMA`, so a fresh database, a reopen, and a database written
+        // before skip lists existed all converge on the same shape; a row
+        // written without it (the engine always writes it) defaults to empty.
+        match conn.execute(
+            "ALTER TABLE changesets ADD COLUMN skips TEXT NOT NULL DEFAULT '[]'",
+            [],
+        ) {
+            Ok(_) => {}
+            Err(error) if error.to_string().contains("duplicate column name") => {}
+            Err(error) => return Err(error.into()),
+        }
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -95,15 +108,17 @@ impl MetadataStore for SqliteMetadataStore {
     fn append(&mut self, new: NewChangeset) -> Result<ChangesetInfo> {
         let payload = serde_json::to_string(&new.changeset)?;
         let parents = serde_json::to_string(&new.changeset.parents)?;
+        let skips = serde_json::to_string(&new.skips)?;
         let lsn: i64 = self.lock().query_row(
-            "INSERT INTO changesets (id, root_tree, generation, parents, payload)
-                 VALUES (?1, ?2, ?3, ?4, ?5) RETURNING lsn",
+            "INSERT INTO changesets (id, root_tree, generation, parents, payload, skips)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING lsn",
             params![
                 new.id.to_string(),
                 new.root_tree.to_string(),
                 i64::try_from(new.generation).unwrap_or(i64::MAX),
                 parents,
                 payload,
+                skips,
             ],
             |row| row.get(0),
         )?;
@@ -151,11 +166,25 @@ impl MetadataStore for SqliteMetadataStore {
         .transpose()
     }
 
+    fn first_parent_skips(&self, id: ObjectId) -> Result<Option<Vec<ObjectId>>> {
+        let skips = self
+            .lock()
+            .query_row(
+                "SELECT skips FROM changesets WHERE id = ?1",
+                [id.to_string()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        skips
+            .map(|skips| Ok(serde_json::from_str(&skips)?))
+            .transpose()
+    }
+
     fn record(&self, id: ObjectId) -> Result<Option<StoredChangeset>> {
         let row = self
             .lock()
             .query_row(
-                "SELECT lsn, root_tree, generation, payload FROM changesets WHERE id = ?1",
+                "SELECT lsn, root_tree, generation, payload, skips FROM changesets WHERE id = ?1",
                 [id.to_string()],
                 |row| {
                     Ok((
@@ -163,11 +192,12 @@ impl MetadataStore for SqliteMetadataStore {
                         row.get::<_, String>(1)?,
                         row.get::<_, i64>(2)?,
                         row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
                     ))
                 },
             )
             .optional()?;
-        row.map(|(lsn, root_tree, generation, payload)| {
+        row.map(|(lsn, root_tree, generation, payload, skips)| {
             let changeset: Changeset = serde_json::from_str(&payload)?;
             Ok(StoredChangeset {
                 info: ChangesetInfo::new(
@@ -177,6 +207,7 @@ impl MetadataStore for SqliteMetadataStore {
                 ),
                 changeset,
                 generation: u64::try_from(generation).unwrap_or(0),
+                skips: serde_json::from_str(&skips)?,
             })
         })
         .transpose()

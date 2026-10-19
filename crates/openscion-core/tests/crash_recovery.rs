@@ -56,6 +56,7 @@ fn write_sample(data_dir: &Path) -> ObjectId {
         root_tree: blob,
         changeset,
         generation: 1,
+        skips: Vec::new(),
     })
     .unwrap();
     meta.update_ref("main", None, id).unwrap();

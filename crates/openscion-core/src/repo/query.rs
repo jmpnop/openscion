@@ -10,7 +10,11 @@
 //!
 //! Ancestry walks are bounded by generation numbers: a changeset's generation
 //! is strictly greater than every ancestor's, so a walk toward the ancestors of
-//! a target never descends past the target's generation.
+//! a target never descends past the target's generation. A first-parent
+//! ancestry question — the common one, since OpenScion's history is
+//! first-parent-centric — is answered faster still: [`Repository::is_first_parent_ancestor`]
+//! jumps along the skip list in O(log n), and [`Repository::is_ancestor`] and
+//! [`Repository::merge_base`] take that fast path before any step-by-step walk.
 
 use std::collections::{BinaryHeap, HashSet};
 use std::sync::Arc;
@@ -141,7 +145,9 @@ impl Repository {
     }
 
     /// Whether `ancestor` is `descendant` or lies on some parent path back from
-    /// it. Generation numbers bound the search.
+    /// it. The first-parent spine is checked first in O(log n) via the skip
+    /// list; only an ancestor reached solely through a merge's later parent
+    /// needs the generation-pruned walk over all parents.
     ///
     /// # Errors
     ///
@@ -151,6 +157,14 @@ impl Repository {
         if ancestor == descendant {
             return Ok(true);
         }
+        // A changeset older than `ancestor` cannot reach it.
+        if self.ancestry_of(descendant)?.generation < floor {
+            return Ok(false);
+        }
+        // Fast path: a first-parent ancestor is found by jumping, not walking.
+        if self.is_first_parent_ancestor(ancestor, descendant)? {
+            return Ok(true);
+        }
         let mut seen = HashSet::new();
         let mut stack = vec![descendant];
         while let Some(id) = stack.pop() {
@@ -158,13 +172,50 @@ impl Repository {
                 return Ok(true);
             }
             for parent in &self.ancestry_of(id)?.parents {
-                // A changeset older than `ancestor` cannot reach it.
                 if self.ancestry_of(*parent)?.generation >= floor && seen.insert(*parent) {
                     stack.push(*parent);
                 }
             }
         }
         Ok(false)
+    }
+
+    /// Whether `ancestor` lies on `descendant`'s first-parent spine — reachable
+    /// by following first parents alone. Jumps along the skip list toward
+    /// `ancestor`'s generation, so it costs O(log n) lookups rather than the
+    /// length of the spine. A positive answer needs no merge reasoning: a node
+    /// on the first-parent spine is an ancestor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotFound`](crate::Error::NotFound) when either changeset is unknown.
+    pub fn is_first_parent_ancestor(
+        &self,
+        ancestor: ObjectId,
+        descendant: ObjectId,
+    ) -> Result<bool> {
+        let floor = self.ancestry_of(ancestor)?.generation;
+        let mut cursor = descendant;
+        // Generations strictly decrease along the first-parent spine, so there
+        // is at most one node at each generation. Repeatedly take the largest
+        // skip whose target still sits at or above `floor`; it never overshoots.
+        while self.ancestry_of(cursor)?.generation > floor {
+            let skips = self.first_parent_skips_of(cursor)?;
+            let mut jumped = None;
+            for &candidate in skips.iter().rev() {
+                if self.ancestry_of(candidate)?.generation >= floor {
+                    jumped = Some(candidate);
+                    break;
+                }
+            }
+            match jumped {
+                Some(next) => cursor = next,
+                // Even the first parent is below `floor`: the spine skips over
+                // generation `floor`, so `ancestor` is not on it.
+                None => return Ok(false),
+            }
+        }
+        Ok(cursor == ancestor)
     }
 
     /// A lowest common ancestor of `a` and `b`: a common ancestor no common
@@ -176,6 +227,15 @@ impl Repository {
     ///
     /// Returns [`Error::NotFound`](crate::Error::NotFound) when either changeset is unknown.
     pub fn merge_base(&self, a: ObjectId, b: ObjectId) -> Result<Option<ObjectId>> {
+        // Fast path: when one is a first-parent ancestor of the other it is the
+        // unique greatest-generation common ancestor, hence the merge base, and
+        // the skip list finds that in O(log n).
+        if self.is_first_parent_ancestor(a, b)? {
+            return Ok(Some(a));
+        }
+        if self.is_first_parent_ancestor(b, a)? {
+            return Ok(Some(b));
+        }
         let ancestors_of_a = self.ancestors(a)?;
         // Walk b's ancestors greatest-generation first; the first one that is
         // also an ancestor of a is a lowest common ancestor.

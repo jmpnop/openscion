@@ -3,8 +3,8 @@
 use openscion_proto::{Changeset, ChangesetInfo, ObjectId};
 
 /// A validated changeset about to be appended to the log. The engine has
-/// already computed its id, root tree, and generation; the store assigns the
-/// log sequence number.
+/// already computed its id, root tree, generation, and first-parent skip list;
+/// the store assigns the log sequence number.
 #[derive(Debug, Clone)]
 pub struct NewChangeset {
     /// The changeset's content id.
@@ -15,6 +15,9 @@ pub struct NewChangeset {
     pub changeset: Changeset,
     /// Its generation: `1` for a root, else `1 + max(parent generations)`.
     pub generation: u64,
+    /// Its first-parent skip list: index `k` is the first-parent ancestor `2^k`
+    /// changesets back. Empty for a root. See [`Ancestry`].
+    pub skips: Vec<ObjectId>,
 }
 
 /// A changeset read back from the log, with its summary and generation.
@@ -26,6 +29,8 @@ pub struct StoredChangeset {
     pub changeset: Changeset,
     /// Its generation.
     pub generation: u64,
+    /// Its first-parent skip list; see [`NewChangeset::skips`].
+    pub skips: Vec<ObjectId>,
 }
 
 /// The ancestry facts an ancestry walk needs about one changeset, fetched in a

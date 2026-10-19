@@ -37,6 +37,7 @@ impl MetadataStore for MemoryMetadataStore {
             info,
             changeset: new.changeset,
             generation: new.generation,
+            skips: new.skips,
         });
         Ok(info)
     }
@@ -50,6 +51,10 @@ impl MetadataStore for MemoryMetadataStore {
             generation: entry.generation,
             parents: entry.changeset.parents.clone(),
         }))
+    }
+
+    fn first_parent_skips(&self, id: ObjectId) -> Result<Option<Vec<ObjectId>>> {
+        Ok(self.entry(id).map(|entry| entry.skips.clone()))
     }
 
     fn record(&self, id: ObjectId) -> Result<Option<StoredChangeset>> {

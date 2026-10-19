@@ -9,8 +9,16 @@ use openscion_proto::{
     Change, ChangesetInfo, CreateChangeset, EntryKind, ObjectId, ObjectKind, RepoPath, UpdateRef,
 };
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use openscion_proto::RefValue;
+
 use super::{MAX_CHANGES, MAX_TEXT, Repository};
-use crate::{Error, FixedClock, encode_tree, object_id};
+use crate::{
+    Ancestry, Error, FixedClock, MemoryMetadataStore, MemoryObjectStore, MetadataStore,
+    NewChangeset, StoredChangeset, SystemClock, encode_tree, object_id,
+};
 
 fn path(text: &str) -> RepoPath {
     RepoPath::new(text).unwrap()
@@ -592,6 +600,135 @@ fn merge_base_agrees_with_brute_force() {
             assert_eq!(repo.generation(base).unwrap(), best);
         }
     }
+}
+
+/// The first-parent ancestors of `id`, including itself, by following only the
+/// first parent — the oracle `is_first_parent_ancestor` must agree with.
+fn first_parent_spine(repo: &Repository, id: ObjectId) -> HashSet<ObjectId> {
+    let mut seen = HashSet::new();
+    let mut cursor = Some(id);
+    while let Some(current) = cursor {
+        seen.insert(current);
+        cursor = repo
+            .changeset(current)
+            .unwrap()
+            .changeset
+            .parents
+            .first()
+            .copied();
+    }
+    seen
+}
+
+#[test]
+fn the_skip_list_holds_power_of_two_ancestors() {
+    let mut repo = Repository::with_clock(FixedClock(0));
+    let mut ids = vec![commit1(&mut repo, &[], "f", b"v0").id];
+    for i in 1..=32 {
+        let parent = *ids.last().unwrap();
+        ids.push(commit1(&mut repo, &[parent], "f", format!("v{i}").as_bytes()).id);
+    }
+    // A root has no first-parent ancestors.
+    assert!(repo.first_parent_skips(ids[0]).unwrap().is_empty());
+    // The node 32 deep carries skips for k = 0..=5 (2^5 = 32 reaches the root),
+    // and skip k is the ancestor exactly 2^k changesets back.
+    let skips = repo.first_parent_skips(*ids.last().unwrap()).unwrap();
+    assert_eq!(skips.len(), 6);
+    for (k, &skip) in skips.iter().enumerate() {
+        assert_eq!(skip, ids[ids.len() - 1 - (1 << k)], "skip 2^{k}");
+    }
+}
+
+#[test]
+fn is_first_parent_ancestor_matches_a_first_parent_walk() {
+    // A random DAG with merges: an ancestor reachable only through a second
+    // parent must read as false, which pins the merge reasoning.
+    let (repo, ids) = random_history(60, 0xABCD_1234);
+    for &d in &ids {
+        let spine = first_parent_spine(&repo, d);
+        for &a in &ids {
+            assert_eq!(
+                repo.is_first_parent_ancestor(a, d).unwrap(),
+                spine.contains(&a),
+                "first-parent ancestry disagreed for {a} -> {d}"
+            );
+        }
+    }
+}
+
+/// A metadata store that counts the per-node lookups a walk makes, to prove the
+/// first-parent ancestry query is logarithmic in the depth, not linear.
+#[derive(Debug)]
+struct CountingMeta {
+    inner: MemoryMetadataStore,
+    lookups: Arc<AtomicU64>,
+}
+
+impl MetadataStore for CountingMeta {
+    fn append(&mut self, new: NewChangeset) -> crate::Result<ChangesetInfo> {
+        self.inner.append(new)
+    }
+    fn info(&self, id: ObjectId) -> crate::Result<Option<ChangesetInfo>> {
+        self.inner.info(id)
+    }
+    fn ancestry(&self, id: ObjectId) -> crate::Result<Option<Ancestry>> {
+        self.lookups.fetch_add(1, Ordering::Relaxed);
+        self.inner.ancestry(id)
+    }
+    fn first_parent_skips(&self, id: ObjectId) -> crate::Result<Option<Vec<ObjectId>>> {
+        self.lookups.fetch_add(1, Ordering::Relaxed);
+        self.inner.first_parent_skips(id)
+    }
+    fn record(&self, id: ObjectId) -> crate::Result<Option<StoredChangeset>> {
+        self.inner.record(id)
+    }
+    fn log_len(&self) -> crate::Result<u64> {
+        self.inner.log_len()
+    }
+    fn get_ref(&self, name: &str) -> crate::Result<Option<RefValue>> {
+        self.inner.get_ref(name)
+    }
+    fn update_ref(
+        &mut self,
+        name: &str,
+        expected: Option<ObjectId>,
+        new: ObjectId,
+    ) -> crate::Result<RefValue> {
+        self.inner.update_ref(name, expected, new)
+    }
+}
+
+#[test]
+fn first_parent_ancestry_is_logarithmic() {
+    const DEPTH: usize = 20_000;
+    let lookups = Arc::new(AtomicU64::new(0));
+    let mut repo = Repository::with_stores(
+        Box::new(MemoryObjectStore::new()),
+        Box::new(CountingMeta {
+            inner: MemoryMetadataStore::new(),
+            lookups: Arc::clone(&lookups),
+        }),
+        Box::new(SystemClock),
+    );
+    let root = commit1(&mut repo, &[], "f", b"v0").id;
+    let mut tip = root;
+    for i in 1..DEPTH {
+        tip = commit1(&mut repo, &[tip], "f", format!("v{i}").as_bytes()).id;
+    }
+
+    // Count only the query, not the build of the history.
+    lookups.store(0, Ordering::Relaxed);
+    assert!(repo.is_first_parent_ancestor(root, tip).unwrap());
+    let used = lookups.load(Ordering::Relaxed);
+    println!("is_first_parent_ancestor over depth {DEPTH}: {used} metadata lookups");
+    // O(log^2 DEPTH) is a few hundred lookups; a linear walk would be DEPTH.
+    assert!(
+        used < 1024,
+        "used {used} metadata lookups over depth {DEPTH} — not logarithmic"
+    );
+    // The reverse question (tip is not a first-parent ancestor of root) is
+    // rejected by generation without a walk at all.
+    assert!(!repo.is_first_parent_ancestor(tip, root).unwrap());
 }
 
 #[test]

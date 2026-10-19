@@ -10,15 +10,15 @@
 //! through [`Repository::with_stores`].
 //!
 //! Each appended changeset carries a generation number, which bounds the
-//! ancestry walks. The read queries ([`query`]) — `stat`, `list_tree`,
-//! `read_file`, `diff`, `log`, `is_ancestor`, `merge_base` — resolve paths and
-//! walk history on the server without a checkout. Landing ([`rebase`]) — rebase,
-//! revert, and `land` with its compare-and-swap retry loop — moves work onto a
-//! ref without a global lock.
+//! ancestry walks, and a first-parent skip list, which lets a first-parent
+//! ancestry question jump along the history in O(log n) rather than step by
+//! step. The read queries ([`query`]) — `stat`, `list_tree`, `read_file`,
+//! `diff`, `log`, `is_ancestor`, `merge_base` — resolve paths and walk history
+//! on the server without a checkout. Landing ([`rebase`]) — rebase, revert, and
+//! `land` with its compare-and-swap retry loop — moves work onto a ref without a
+//! global lock.
 //!
-//! Not here yet: the filesystem and SQLite store implementations, first-parent
-//! skip lists (the generation numbers already bound the walks), and line-level
-//! merge.
+//! Not here yet: line-level merge.
 
 mod derive;
 mod query;
@@ -176,11 +176,13 @@ impl Repository {
         };
         let root_tree = derive::derive_root_tree(self.objects.as_mut(), base, &changeset.changes)?;
         let generation = self.next_generation(&changeset.parents)?;
+        let skips = self.next_skips(&changeset.parents)?;
         self.meta.append(NewChangeset {
             id,
             root_tree,
             changeset,
             generation,
+            skips,
         })
     }
 
@@ -192,6 +194,29 @@ impl Repository {
             max = max.max(self.ancestry_of(*parent)?.generation);
         }
         Ok(max + 1)
+    }
+
+    /// The first-parent skip list a new changeset with these parents gets:
+    /// index `k` is the first-parent ancestor `2^k` changesets back. Empty for a
+    /// root. Built by binary lifting off the first parent's own skip list, so it
+    /// costs O(log n) lookups, not the depth of history. Parents were validated
+    /// to exist.
+    fn next_skips(&self, parents: &[ObjectId]) -> Result<Vec<ObjectId>> {
+        let Some(&first) = parents.first() else {
+            return Ok(Vec::new());
+        };
+        // `skips[0]` is the first parent; `skips[k]` is `2^(k-1)` steps back
+        // from the node `2^(k-1)` steps back, i.e. `2^k` steps back. The chain
+        // stops once the node `2^k` back has no `2^k` ancestor of its own.
+        let mut skips = vec![first];
+        loop {
+            let k = skips.len() - 1;
+            match self.first_parent_skips_of(skips[k])?.get(k) {
+                Some(&next) => skips.push(next),
+                None => break,
+            }
+        }
+        Ok(skips)
     }
 
     fn validate(&self, changeset: &Changeset) -> Result<()> {
@@ -250,6 +275,11 @@ impl Repository {
         self.meta.ancestry(id)?.ok_or(Error::NotFound(id))
     }
 
+    /// The first-parent skip list of the changeset with `id`.
+    pub(super) fn first_parent_skips_of(&self, id: ObjectId) -> Result<Vec<ObjectId>> {
+        self.meta.first_parent_skips(id)?.ok_or(Error::NotFound(id))
+    }
+
     /// The whole changeset with `id`.
     pub(super) fn record(&self, id: ObjectId) -> Result<StoredChangeset> {
         self.meta.record(id)?.ok_or(Error::NotFound(id))
@@ -274,6 +304,19 @@ impl Repository {
     /// Returns [`Error::NotFound`] when no changeset has this id.
     pub fn generation(&self, id: ObjectId) -> Result<u64> {
         Ok(self.ancestry_of(id)?.generation)
+    }
+
+    /// A changeset's first-parent skip list: index `k` is the first-parent
+    /// ancestor `2^k` changesets back, so [`is_first_parent_ancestor`] reaches
+    /// any first-parent ancestor in O(log n). Empty for a root.
+    ///
+    /// [`is_first_parent_ancestor`]: Repository::is_first_parent_ancestor
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotFound`] when no changeset has this id.
+    pub fn first_parent_skips(&self, id: ObjectId) -> Result<Vec<ObjectId>> {
+        self.first_parent_skips_of(id)
     }
 
     /// A ref's current value.
