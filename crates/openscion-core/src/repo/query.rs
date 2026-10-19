@@ -34,7 +34,7 @@ impl Repository {
         changeset: ObjectId,
         path: &RepoPath,
     ) -> Result<Option<(EntryKind, ObjectId)>> {
-        let root = self.entry(changeset)?.info.root_tree;
+        let root = self.info_of(changeset)?.root_tree;
         self.resolve(root, path)
     }
 
@@ -70,7 +70,7 @@ impl Repository {
         path: Option<&RepoPath>,
         recursive: bool,
     ) -> Result<Vec<(String, EntryKind, ObjectId)>> {
-        let root = self.entry(changeset)?.info.root_tree;
+        let root = self.info_of(changeset)?.root_tree;
         let (tree, prefix) = match path {
             None => (root, String::new()),
             Some(path) => match self.resolve(root, path)? {
@@ -94,8 +94,8 @@ impl Repository {
     /// Returns [`Error::NotFound`](crate::Error::NotFound) when either changeset is unknown, and
     /// [`Error::Malformed`](crate::Error::Malformed) when a tree does not decode.
     pub fn diff(&self, from: ObjectId, to: ObjectId, prefixes: &[&str]) -> Result<Vec<Change>> {
-        let from_root = self.entry(from)?.info.root_tree;
-        let to_root = self.entry(to)?.info.root_tree;
+        let from_root = self.info_of(from)?.root_tree;
+        let to_root = self.info_of(to)?.root_tree;
         let mut out = Vec::new();
         self.diff_into(Some(from_root), Some(to_root), "", prefixes, &mut out)?;
         out.sort_by(|a, b| a.path().cmp(b.path()));
@@ -123,7 +123,7 @@ impl Repository {
             if out.len() >= limit || Some(id) == until {
                 break;
             }
-            let entry = self.entry(id)?;
+            let entry = self.record(id)?;
             let first_parent = entry.changeset.parents.first().copied();
             if path.is_none_or(|path| self.touched(entry.info.root_tree, first_parent, path)) {
                 let changeset = &entry.changeset;
@@ -147,7 +147,7 @@ impl Repository {
     ///
     /// Returns [`Error::NotFound`](crate::Error::NotFound) when either changeset is unknown.
     pub fn is_ancestor(&self, ancestor: ObjectId, descendant: ObjectId) -> Result<bool> {
-        let floor = self.entry(ancestor)?.generation;
+        let floor = self.ancestry_of(ancestor)?.generation;
         if ancestor == descendant {
             return Ok(true);
         }
@@ -157,9 +157,9 @@ impl Repository {
             if id == ancestor {
                 return Ok(true);
             }
-            for parent in &self.entry(id)?.changeset.parents {
+            for parent in &self.ancestry_of(id)?.parents {
                 // A changeset older than `ancestor` cannot reach it.
-                if self.entry(*parent)?.generation >= floor && seen.insert(*parent) {
+                if self.ancestry_of(*parent)?.generation >= floor && seen.insert(*parent) {
                     stack.push(*parent);
                 }
             }
@@ -182,14 +182,14 @@ impl Repository {
         let mut seen = HashSet::new();
         let mut frontier = BinaryHeap::new();
         seen.insert(b);
-        frontier.push((self.entry(b)?.generation, b));
+        frontier.push((self.ancestry_of(b)?.generation, b));
         while let Some((_, id)) = frontier.pop() {
             if ancestors_of_a.contains(&id) {
                 return Ok(Some(id));
             }
-            for parent in &self.entry(id)?.changeset.parents {
+            for parent in &self.ancestry_of(id)?.parents {
                 if seen.insert(*parent) {
-                    frontier.push((self.entry(*parent)?.generation, *parent));
+                    frontier.push((self.ancestry_of(*parent)?.generation, *parent));
                 }
             }
         }
@@ -202,7 +202,7 @@ impl Repository {
         let mut stack = vec![id];
         seen.insert(id);
         while let Some(current) = stack.pop() {
-            for parent in &self.entry(current)?.changeset.parents {
+            for parent in &self.ancestry_of(current)?.parents {
                 if seen.insert(*parent) {
                     stack.push(*parent);
                 }
@@ -217,8 +217,8 @@ impl Repository {
         let here = self.resolve(root, path).ok().flatten();
         let there = match first_parent {
             Some(parent) => self
-                .entry(parent)
-                .and_then(|entry| self.resolve(entry.info.root_tree, path))
+                .info_of(parent)
+                .and_then(|info| self.resolve(info.root_tree, path))
                 .ok()
                 .flatten(),
             None => None,

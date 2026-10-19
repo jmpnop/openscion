@@ -21,7 +21,7 @@ fn the_protocol_types_are_the_same_types() {
 #[test]
 fn a_consumer_can_commit_and_move_a_ref() {
     let mut repo = Repository::with_clock(FixedClock(5));
-    let blob = repo.put_blob(b"hello");
+    let blob = repo.put_blob(b"hello").unwrap();
     let info = repo
         .create_changeset(CreateChangeset::new(
             vec![],
@@ -45,7 +45,7 @@ fn a_consumer_can_commit_and_move_a_ref() {
 fn ids_are_deterministic_under_a_fixed_clock() {
     let build = || {
         let mut repo = Repository::with_clock(FixedClock(5));
-        let blob = repo.put_blob(b"same");
+        let blob = repo.put_blob(b"same").unwrap();
         repo.create_changeset(CreateChangeset::new(
             vec![],
             vec![Change::Upsert {

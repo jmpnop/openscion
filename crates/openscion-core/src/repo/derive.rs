@@ -16,7 +16,7 @@ use std::collections::btree_map::Entry;
 
 use openscion_proto::{Change, EntryKind, ObjectId, ObjectKind, TreeEntry};
 
-use crate::{Error, MemoryObjectStore, Result, decode_tree, encode_tree};
+use crate::{Error, ObjectStore, Result, decode_tree, encode_tree};
 
 /// One directory while it is being rewritten.
 #[derive(Debug, Default)]
@@ -35,7 +35,7 @@ enum Slot {
 /// Applies `changes` to the tree `base` and writes every new tree to
 /// `objects`, returning the new root tree's id.
 pub(super) fn derive_root_tree(
-    objects: &mut MemoryObjectStore,
+    objects: &mut dyn ObjectStore,
     base: ObjectId,
     changes: &[Change],
 ) -> Result<ObjectId> {
@@ -58,10 +58,13 @@ pub(super) fn derive_root_tree(
             )?;
         }
     }
-    Ok(write(objects, root).unwrap_or_else(|| objects.put(ObjectKind::Tree, &[])))
+    match write(objects, root)? {
+        Some(id) => Ok(id),
+        None => objects.put(ObjectKind::Tree, &[]),
+    }
 }
 
-fn load(objects: &MemoryObjectStore, id: ObjectId) -> Result<Node> {
+fn load(objects: &dyn ObjectStore, id: ObjectId) -> Result<Node> {
     let entries = decode_tree(&objects.get(id)?)?
         .into_iter()
         .map(|entry| (entry.name, Slot::Entry(entry.kind, entry.id)))
@@ -79,7 +82,7 @@ fn invalid(path: &str, rule: &'static str) -> Error {
 /// Returns the loaded subdirectory `name` of `node`, loading it if it is still
 /// an untouched tree entry, or `None` if `name` is absent or not a directory.
 fn subdir<'a>(
-    objects: &MemoryObjectStore,
+    objects: &dyn ObjectStore,
     node: &'a mut Node,
     name: &str,
 ) -> Result<Option<&'a mut Node>> {
@@ -96,7 +99,7 @@ fn subdir<'a>(
 }
 
 fn delete(
-    objects: &MemoryObjectStore,
+    objects: &dyn ObjectStore,
     node: &mut Node,
     components: &[&str],
     path: &str,
@@ -124,7 +127,7 @@ fn delete(
 }
 
 fn upsert(
-    objects: &MemoryObjectStore,
+    objects: &dyn ObjectStore,
     node: &mut Node,
     components: &[&str],
     target: (EntryKind, ObjectId),
@@ -161,19 +164,20 @@ fn upsert(
 
 /// Writes every loaded directory under `node`, bottom up, and returns the
 /// tree id, or `None` if the directory ended up empty.
-fn write(objects: &mut MemoryObjectStore, node: Node) -> Option<ObjectId> {
-    let entries: Vec<_> = node
-        .entries
-        .into_iter()
-        .filter_map(|(name, slot)| match slot {
-            Slot::Entry(kind, id) => Some(TreeEntry::new(name, kind, id)),
+fn write(objects: &mut dyn ObjectStore, node: Node) -> Result<Option<ObjectId>> {
+    let mut entries = Vec::with_capacity(node.entries.len());
+    for (name, slot) in node.entries {
+        match slot {
+            Slot::Entry(kind, id) => entries.push(TreeEntry::new(name, kind, id)),
             Slot::Dir(child) => {
-                write(objects, child).map(|id| TreeEntry::new(name, EntryKind::Tree, id))
+                if let Some(id) = write(objects, child)? {
+                    entries.push(TreeEntry::new(name, EntryKind::Tree, id));
+                }
             }
-        })
-        .collect();
-    if entries.is_empty() {
-        return None;
+        }
     }
-    Some(objects.put(ObjectKind::Tree, &encode_tree(&entries)))
+    if entries.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(objects.put(ObjectKind::Tree, &encode_tree(&entries))?))
 }

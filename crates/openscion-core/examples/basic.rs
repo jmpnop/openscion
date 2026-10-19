@@ -15,8 +15,8 @@ use openscion_core::{
 fn main() -> Result<()> {
     let mut repo = Repository::new();
 
-    let readme = repo.put_blob(b"# demo\n");
-    let main_rs = repo.put_blob(b"fn main() {}\n");
+    let readme = repo.put_blob(b"# demo\n")?;
+    let main_rs = repo.put_blob(b"fn main() {}\n")?;
     let import = repo.create_changeset(CreateChangeset::new(
         vec![],
         vec![
@@ -28,7 +28,7 @@ fn main() -> Result<()> {
     ))?;
     repo.update_ref("main", UpdateRef::new(None, import.id))?;
 
-    let edited = repo.put_blob(b"fn main() { println!(\"hi\"); }\n");
+    let edited = repo.put_blob(b"fn main() { println!(\"hi\"); }\n")?;
     let edit = repo.create_changeset(CreateChangeset::new(
         vec![import.id],
         vec![upsert("src/main.rs", edited)?],

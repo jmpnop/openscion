@@ -20,7 +20,7 @@ fn upsert(repo: &mut Repository, at: &str, contents: &[u8]) -> Change {
     Change::Upsert {
         path: path(at),
         kind: EntryKind::File,
-        blob: repo.put_blob(contents),
+        blob: repo.put_blob(contents).unwrap(),
     }
 }
 
@@ -98,7 +98,7 @@ fn the_first_changeset_builds_a_nested_snapshot() {
         names(&repo, root.root_tree),
         ["a/x.txt", "a/y.txt", "b/deep/z.txt", "top.txt"]
     );
-    assert_eq!(repo.log_len(), 1);
+    assert_eq!(repo.log_len().unwrap(), 1);
 }
 
 #[test]
@@ -156,7 +156,7 @@ fn a_directory_can_become_a_file_in_one_changeset() {
 #[test]
 fn kinds_are_recorded_and_can_change() {
     let (mut repo, root) = seeded();
-    let blob = repo.put_blob(b"top");
+    let blob = repo.put_blob(b"top").unwrap();
     let change = Change::Upsert {
         path: path("top.txt"),
         kind: EntryKind::Executable,
@@ -241,7 +241,7 @@ fn rejects_a_path_changed_twice() {
 #[test]
 fn rejects_an_upsert_of_a_tree_kind() {
     let (mut repo, root) = seeded();
-    let blob = repo.put_blob(b"t");
+    let blob = repo.put_blob(b"t").unwrap();
     let change = Change::Upsert {
         path: path("t"),
         kind: EntryKind::Tree,
@@ -329,12 +329,15 @@ fn a_corrupt_base_tree_is_reported() {
     // The API never writes a tree that points at a blob as a directory, so
     // build one by hand and derive from it directly.
     let mut repo = Repository::new();
-    let blob = repo.put_blob(b"not a tree");
+    let blob = repo.put_blob(b"not a tree").unwrap();
     assert!(matches!(repo.tree(blob), Err(Error::Malformed { .. })));
     let entry = openscion_proto::TreeEntry::new("d", EntryKind::Tree, blob);
-    let bogus = repo.objects.put(ObjectKind::Tree, &encode_tree(&[entry]));
-    let error =
-        super::derive::derive_root_tree(&mut repo.objects, bogus, &[delete("d/f")]).unwrap_err();
+    let bogus = repo
+        .objects
+        .put(ObjectKind::Tree, &encode_tree(&[entry]))
+        .unwrap();
+    let error = super::derive::derive_root_tree(repo.objects.as_mut(), bogus, &[delete("d/f")])
+        .unwrap_err();
     assert!(matches!(error, Error::Malformed { .. }));
 }
 
@@ -345,7 +348,7 @@ fn an_identical_request_returns_the_existing_changeset() {
     let first = commit(&mut repo, &[root], vec![change.clone()]).unwrap();
     let again = commit(&mut repo, &[root], vec![change]).unwrap();
     assert_eq!(first, again);
-    assert_eq!(repo.log_len(), 2);
+    assert_eq!(repo.log_len().unwrap(), 2);
 }
 
 #[test]
@@ -368,11 +371,18 @@ fn changesets_read_back_with_sorted_changes() {
 }
 
 #[test]
-fn objects_and_statistics_are_readable() {
+fn objects_are_readable() {
     let (repo, root) = seeded();
     assert!(repo.object(root.root_tree).is_ok());
-    assert!(repo.objects().len() >= 4);
-    assert!(Repository::default().objects().is_empty());
+    // The tree names entries whose objects are retrievable.
+    let top = repo.tree(root.root_tree).unwrap();
+    assert!(!top.is_empty());
+    assert!(repo.object(top[0].id).is_ok());
+    // An object that was never stored is not found.
+    assert!(matches!(
+        Repository::default().object(ObjectId::from_bytes([0; 32])),
+        Err(Error::NotFound(_))
+    ));
 }
 
 #[test]
@@ -596,7 +606,7 @@ fn snapshot_stat_list_tree_and_read_file() {
 
     let (kind, id) = repo.stat(cs.id, &path("src/main.rs")).unwrap().unwrap();
     assert_eq!(kind, EntryKind::File);
-    assert_eq!(id, repo.put_blob(b"fn main() {}"));
+    assert_eq!(id, repo.put_blob(b"fn main() {}").unwrap());
     assert!(repo.stat(cs.id, &path("src/missing.rs")).unwrap().is_none());
     assert!(repo.stat(cs.id, &path("README.md/x")).unwrap().is_none());
 
@@ -730,7 +740,7 @@ fn rebase_applies_drops_identical_and_conflicts() {
     assert_eq!(repo.rebase(feature.id, same.id).unwrap(), same.id);
 
     // Conflicting change on the same path: no changeset is created.
-    let before = repo.log_len();
+    let before = repo.log_len().unwrap();
     let conflict = commit1(&mut repo, &[base.id], "feature.txt", b"OTHER");
     let err = repo.rebase(feature.id, conflict.id).unwrap_err();
     assert_eq!(
@@ -740,7 +750,7 @@ fn rebase_applies_drops_identical_and_conflicts() {
         }
     );
     assert_eq!(
-        repo.log_len(),
+        repo.log_len().unwrap(),
         before + 1,
         "conflict created nothing beyond `conflict`"
     );

@@ -1,4 +1,4 @@
 # The project's own name, and product names it documents, are prose, not code,
 # so `doc_markdown` should not ask for them in backticks. `..` keeps clippy's
 # default list of allowed identifiers.
-doc-valid-idents = ["OpenScion", "DuckDB", ".."]
+doc-valid-idents = ["OpenScion", "DuckDB", "SQLite", ".."]

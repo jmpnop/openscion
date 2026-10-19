@@ -3,8 +3,11 @@
 //! [`Repository`] is the engine the server wraps. It accepts blobs, validates
 //! and appends changesets — deriving each one's root tree before the append is
 //! acknowledged — and moves refs by compare-and-swap
-//! (`docs/specs/openscion-data-model.md`). Everything is in memory; there is no
-//! persistence yet.
+//! (`docs/specs/openscion-data-model.md`). It holds its state behind two ports:
+//! blobs and trees in an [`ObjectStore`](crate::ObjectStore), and the changeset
+//! log and refs in a [`MetadataStore`](crate::MetadataStore). The default
+//! stores are in memory; persistent stores plug in behind the same ports
+//! through [`Repository::with_stores`].
 //!
 //! Each appended changeset carries a generation number, which bounds the
 //! ancestry walks. The read queries ([`query`]) — `stat`, `list_tree`,
@@ -13,15 +16,14 @@
 //! revert, and `land` with its compare-and-swap retry loop — moves work onto a
 //! ref without a global lock.
 //!
-//! Not here yet: persistent stores, first-parent skip lists (the generation
-//! numbers already bound the walks), and line-level merge.
+//! Not here yet: the filesystem and SQLite store implementations, first-parent
+//! skip lists (the generation numbers already bound the walks), and line-level
+//! merge.
 
 mod derive;
 mod query;
 mod rebase;
-mod types;
 
-use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use openscion_proto::{
@@ -30,9 +32,9 @@ use openscion_proto::{
 };
 
 use crate::{
-    Clock, Error, MemoryObjectStore, Result, SystemClock, decode_tree, encode_changeset, object_id,
+    Ancestry, Clock, Error, MemoryMetadataStore, MemoryObjectStore, MetadataStore, NewChangeset,
+    ObjectStore, Result, StoredChangeset, SystemClock, decode_tree, encode_changeset, object_id,
 };
-use types::LogEntry;
 
 /// The most changes one changeset may carry.
 pub const MAX_CHANGES: usize = 100_000;
@@ -40,7 +42,7 @@ pub const MAX_CHANGES: usize = 100_000;
 /// The longest an author, message, or metadata string may be, in bytes.
 pub const MAX_TEXT: usize = 1 << 20;
 
-/// An in-memory OpenScion repository.
+/// An OpenScion repository over an object store and a metadata store.
 ///
 /// # Examples
 ///
@@ -50,7 +52,7 @@ pub const MAX_TEXT: usize = 1 << 20;
 /// };
 ///
 /// let mut repo = Repository::with_clock(FixedClock(0));
-/// let blob = repo.put_blob(b"fn main() {}\n");
+/// let blob = repo.put_blob(b"fn main() {}\n")?;
 /// let change = Change::Upsert { path: RepoPath::new("src/main.rs")?, kind: EntryKind::File, blob };
 /// let root = repo.create_changeset(CreateChangeset::new(vec![], vec![change], "agent", "init"))?;
 /// let main = repo.update_ref("main", UpdateRef::new(None, root.id))?;
@@ -62,10 +64,8 @@ pub const MAX_TEXT: usize = 1 << 20;
 /// ```
 #[derive(Debug)]
 pub struct Repository {
-    objects: MemoryObjectStore,
-    log: Vec<LogEntry>,
-    index: HashMap<ObjectId, usize>,
-    refs: BTreeMap<String, RefValue>,
+    objects: Box<dyn ObjectStore>,
+    meta: Box<dyn MetadataStore>,
     clock: Box<dyn Clock>,
 }
 
@@ -76,26 +76,43 @@ impl Default for Repository {
 }
 
 impl Repository {
-    /// An empty repository on the system clock.
+    /// An empty in-memory repository on the system clock.
     #[must_use]
     pub fn new() -> Self {
         Self::with_clock(SystemClock)
     }
 
-    /// An empty repository reading time from `clock`.
+    /// An empty in-memory repository reading time from `clock`.
     #[must_use]
     pub fn with_clock(clock: impl Clock + 'static) -> Self {
+        Self::with_stores(
+            Box::new(MemoryObjectStore::new()),
+            Box::new(MemoryMetadataStore::new()),
+            Box::new(clock),
+        )
+    }
+
+    /// A repository over the given stores and clock. The stores may be empty or
+    /// may already hold a repository's history; the engine does not care which.
+    #[must_use]
+    pub fn with_stores(
+        objects: Box<dyn ObjectStore>,
+        meta: Box<dyn MetadataStore>,
+        clock: Box<dyn Clock>,
+    ) -> Self {
         Self {
-            objects: MemoryObjectStore::new(),
-            log: Vec::new(),
-            index: HashMap::new(),
-            refs: BTreeMap::new(),
-            clock: Box::new(clock),
+            objects,
+            meta,
+            clock,
         }
     }
 
     /// Stores a blob and returns its id.
-    pub fn put_blob(&mut self, bytes: &[u8]) -> ObjectId {
+    ///
+    /// # Errors
+    ///
+    /// Returns a store error when the blob cannot be persisted.
+    pub fn put_blob(&mut self, bytes: &[u8]) -> Result<ObjectId> {
         self.objects.put(ObjectKind::Blob, bytes)
     }
 
@@ -127,16 +144,13 @@ impl Repository {
         decode_tree(&self.objects.get(id)?)
     }
 
-    /// The object store, for size and count statistics.
-    #[must_use]
-    pub fn objects(&self) -> &MemoryObjectStore {
-        &self.objects
-    }
-
     /// The number of changesets in the log.
-    #[must_use]
-    pub fn log_len(&self) -> usize {
-        self.log.len()
+    ///
+    /// # Errors
+    ///
+    /// Returns a store error when the count cannot be read.
+    pub fn log_len(&self) -> Result<u64> {
+        self.meta.log_len()
     }
 
     /// Validates a changeset, derives its root tree, and appends it to the log.
@@ -153,40 +167,41 @@ impl Repository {
         let changeset = Changeset::from_request(request, self.clock.now_millis());
         self.validate(&changeset)?;
         let id = object_id(ObjectKind::Changeset, &encode_changeset(&changeset));
-        if let Some(&position) = self.index.get(&id) {
-            return Ok(self.log[position].info);
+        if let Some(info) = self.meta.info(id)? {
+            return Ok(info);
         }
         let base = match changeset.parents.first() {
-            Some(parent) => self.entry(*parent)?.info.root_tree,
-            None => self.objects.put(ObjectKind::Tree, &[]),
+            Some(parent) => self.info_of(*parent)?.root_tree,
+            None => self.objects.put(ObjectKind::Tree, &[])?,
         };
-        let root_tree = derive::derive_root_tree(&mut self.objects, base, &changeset.changes)?;
-        let info = ChangesetInfo::new(id, self.log.len() as u64 + 1, root_tree);
-        // Parents were validated to be in the log, so `entry` cannot fail here.
-        let generation = changeset
-            .parents
-            .iter()
-            .map(|parent| self.entry(*parent).map(|e| e.generation))
-            .collect::<Result<Vec<_>>>()?
-            .into_iter()
-            .max()
-            .unwrap_or(0)
-            + 1;
-        self.index.insert(id, self.log.len());
-        self.log.push(LogEntry {
-            info,
+        let root_tree = derive::derive_root_tree(self.objects.as_mut(), base, &changeset.changes)?;
+        let generation = self.next_generation(&changeset.parents)?;
+        self.meta.append(NewChangeset {
+            id,
+            root_tree,
             changeset,
             generation,
-        });
-        Ok(info)
+        })
+    }
+
+    /// The generation a new changeset with these parents gets: `1` for a root,
+    /// else `1 + max(parent generations)`. Parents were validated to exist.
+    fn next_generation(&self, parents: &[ObjectId]) -> Result<u64> {
+        let mut max = 0;
+        for parent in parents {
+            max = max.max(self.ancestry_of(*parent)?.generation);
+        }
+        Ok(max + 1)
     }
 
     fn validate(&self, changeset: &Changeset) -> Result<()> {
-        if changeset.parents.is_empty() && !self.log.is_empty() {
+        if changeset.parents.is_empty() && self.meta.log_len()? != 0 {
             return Err(invalid("", "only the first changeset may have no parents"));
         }
         for parent in &changeset.parents {
-            self.entry(*parent)?;
+            if self.meta.info(*parent)?.is_none() {
+                return Err(Error::NotFound(*parent));
+            }
         }
         if changeset.changes.is_empty() && changeset.parents.len() < 2 {
             return Err(invalid("", "only a merge may have no changes"));
@@ -217,7 +232,7 @@ impl Repository {
                 if *kind == EntryKind::Tree {
                     return Err(invalid(path.as_str(), "upsert of a tree"));
                 }
-                if !self.objects.contains(*blob) {
+                if !self.objects.contains(*blob)? {
                     return Err(Error::NotFound(*blob));
                 }
             }
@@ -225,11 +240,19 @@ impl Repository {
         Ok(())
     }
 
-    fn entry(&self, id: ObjectId) -> Result<&LogEntry> {
-        self.index
-            .get(&id)
-            .map(|&position| &self.log[position])
-            .ok_or(Error::NotFound(id))
+    /// The summary of the changeset with `id`.
+    pub(super) fn info_of(&self, id: ObjectId) -> Result<ChangesetInfo> {
+        self.meta.info(id)?.ok_or(Error::NotFound(id))
+    }
+
+    /// The generation and parents of the changeset with `id`.
+    pub(super) fn ancestry_of(&self, id: ObjectId) -> Result<Ancestry> {
+        self.meta.ancestry(id)?.ok_or(Error::NotFound(id))
+    }
+
+    /// The whole changeset with `id`.
+    pub(super) fn record(&self, id: ObjectId) -> Result<StoredChangeset> {
+        self.meta.record(id)?.ok_or(Error::NotFound(id))
     }
 
     /// A changeset from the log, with its summary.
@@ -238,8 +261,8 @@ impl Repository {
     ///
     /// Returns [`Error::NotFound`] when no changeset has this id.
     pub fn changeset(&self, id: ObjectId) -> Result<ChangesetRecord> {
-        let entry = self.entry(id)?;
-        Ok(ChangesetRecord::new(entry.info, entry.changeset.clone()))
+        let record = self.record(id)?;
+        Ok(ChangesetRecord::new(record.info, record.changeset))
     }
 
     /// A changeset's generation: the longest path in changesets from a root to
@@ -250,7 +273,7 @@ impl Repository {
     ///
     /// Returns [`Error::NotFound`] when no changeset has this id.
     pub fn generation(&self, id: ObjectId) -> Result<u64> {
-        Ok(self.entry(id)?.generation)
+        Ok(self.ancestry_of(id)?.generation)
     }
 
     /// A ref's current value.
@@ -261,9 +284,8 @@ impl Repository {
     /// [`Error::NoSuchRef`] when the ref does not exist.
     pub fn get_ref(&self, name: &str) -> Result<RefValue> {
         RepoPath::new(name)?;
-        self.refs
-            .get(name)
-            .cloned()
+        self.meta
+            .get_ref(name)?
             .ok_or_else(|| Error::NoSuchRef(name.to_owned()))
     }
 
@@ -277,18 +299,8 @@ impl Repository {
     /// nothing changes on any error.
     pub fn update_ref(&mut self, name: &str, update: UpdateRef) -> Result<RefValue> {
         RepoPath::new(name)?;
-        self.entry(update.new)?;
-        let current = self.refs.get(name);
-        if current.map(|value| value.target) != update.expected {
-            return Err(Error::RefConflict {
-                name: name.to_owned(),
-                current: current.map(|value| value.target),
-            });
-        }
-        let version = current.map_or(1, |value| value.version + 1);
-        let value = RefValue::new(name, update.new, version);
-        self.refs.insert(name.to_owned(), value.clone());
-        Ok(value)
+        self.info_of(update.new)?;
+        self.meta.update_ref(name, update.expected, update.new)
     }
 }
 

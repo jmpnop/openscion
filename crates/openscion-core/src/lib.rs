@@ -9,17 +9,21 @@
 //! - [`object_id`] — BLAKE3 ids over canonical encodings.
 //! - [`encode_tree`], [`decode_tree`], [`encode_changeset`] — the canonical
 //!   encodings, and [`FrameWriter`] / [`decode_frames`] for batched transfer.
-//! - [`MemoryObjectStore`] — blobs and trees by id.
+//! - [`ObjectStore`] — the content-addressed blob and tree port, with the
+//!   in-memory [`MemoryObjectStore`].
+//! - [`MetadataStore`] — the changeset-log and ref port, with the in-memory
+//!   [`MemoryMetadataStore`].
 //! - [`Repository`] — validation, root-tree derivation by path copying, the
 //!   append-only log, compare-and-swap refs, generation numbers, the snapshot
-//!   and history queries, and server-side rebase, revert, and landing.
+//!   and history queries, and server-side rebase, revert, and landing, over the
+//!   two stores.
 //! - [`Clock`] — the time port, with [`SystemClock`] and [`FixedClock`].
 //!
 //! # What is deliberately not here
 //!
-//! Persistence, the network tiers, git ingestion, and line-level blame and
-//! merge arrive in later phases. There is no transport: `openscion-server` puts
-//! this engine behind HTTP.
+//! The filesystem and SQLite store implementations, the network tiers, git
+//! ingestion, and line-level blame and merge arrive in later phases. There is
+//! no transport: `openscion-server` puts this engine behind HTTP.
 //!
 //! # Layout
 //!
@@ -40,7 +44,7 @@
 //! use openscion_core::{Change, CreateChangeset, EntryKind, Repository, RepoPath, UpdateRef};
 //!
 //! let mut repo = Repository::new();
-//! let blob = repo.put_blob(b"hello\n");
+//! let blob = repo.put_blob(b"hello\n")?;
 //! let path = RepoPath::new("docs/hello.txt")?;
 //! let first = repo.create_changeset(CreateChangeset::new(
 //!     vec![],
@@ -63,6 +67,7 @@ mod clock;
 mod encoding;
 mod error;
 mod hash;
+mod metastore;
 mod repo;
 mod store;
 
@@ -70,8 +75,9 @@ pub use clock::{Clock, FixedClock, SystemClock};
 pub use encoding::{FrameWriter, decode_frames, decode_tree, encode_changeset, encode_tree};
 pub use error::{Error, Result};
 pub use hash::object_id;
+pub use metastore::{Ancestry, MemoryMetadataStore, MetadataStore, NewChangeset, StoredChangeset};
 pub use repo::{MAX_CHANGES, MAX_TEXT, Repository};
-pub use store::MemoryObjectStore;
+pub use store::{MemoryObjectStore, ObjectStore};
 
 // The protocol, re-exported by module rather than by item so every path
 // through this crate resolves to the same definitions the protocol crate

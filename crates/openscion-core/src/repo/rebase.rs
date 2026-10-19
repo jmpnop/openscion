@@ -30,19 +30,18 @@ impl Repository {
     /// created nothing, and [`Error::NotFound`] when a changeset is unknown.
     pub fn rebase(&mut self, changeset: ObjectId, onto: ObjectId) -> Result<ObjectId> {
         let base = self.first_parent_tree(changeset)?;
-        let changes = self.entry(changeset)?.changeset.changes.clone();
-        let kept = self.replay(base, &changes, onto)?;
+        let record = self.record(changeset)?;
+        let kept = self.replay(base, &record.changeset.changes, onto)?;
         if kept.is_empty() {
             return Ok(onto);
         }
-        let entry = self.entry(changeset)?;
         let mut request = CreateChangeset::new(
             vec![onto],
             kept,
-            entry.changeset.author.clone(),
-            entry.changeset.message.clone(),
+            record.changeset.author.clone(),
+            record.changeset.message.clone(),
         );
-        request.metadata = entry.changeset.metadata.clone();
+        request.metadata = record.changeset.metadata.clone();
         request
             .metadata
             .insert("rebased-from".to_owned(), changeset.to_string());
@@ -68,7 +67,7 @@ impl Repository {
         let inverse = self.inverse_changes(changeset)?;
         // The inverse is relative to `changeset`'s own snapshot, so that is the
         // base the replay compares against.
-        let base = Some(self.entry(changeset)?.info.root_tree);
+        let base = Some(self.info_of(changeset)?.root_tree);
         let kept = self.replay(base, &inverse, onto)?;
         if kept.is_empty() {
             return Ok(onto);
@@ -97,7 +96,7 @@ impl Repository {
         ref_name: &str,
         max_attempts: u32,
     ) -> Result<(ObjectId, u64)> {
-        let first_parent = self.entry(changeset)?.changeset.parents.first().copied();
+        let first_parent = self.ancestry_of(changeset)?.parents.first().copied();
         for _ in 0..max_attempts {
             let tip = self.get_ref(ref_name).ok().map(|value| value.target);
             // Land as-is when the ref is absent or already at the first parent;
@@ -121,8 +120,8 @@ impl Repository {
     /// The root tree of `changeset`'s first parent, or `None` when it is a
     /// root changeset (its base snapshot is empty).
     fn first_parent_tree(&self, changeset: ObjectId) -> Result<Option<ObjectId>> {
-        match self.entry(changeset)?.changeset.parents.first() {
-            Some(parent) => Ok(Some(self.entry(*parent)?.info.root_tree)),
+        match self.ancestry_of(changeset)?.parents.first() {
+            Some(parent) => Ok(Some(self.info_of(*parent)?.root_tree)),
             None => Ok(None),
         }
     }
@@ -132,9 +131,9 @@ impl Repository {
     /// when the first parent had nothing there).
     fn inverse_changes(&self, changeset: ObjectId) -> Result<Vec<Change>> {
         let base = self.first_parent_tree(changeset)?;
-        let entry = self.entry(changeset)?;
-        let mut inverse = Vec::with_capacity(entry.changeset.changes.len());
-        for change in &entry.changeset.changes {
+        let record = self.record(changeset)?;
+        let mut inverse = Vec::with_capacity(record.changeset.changes.len());
+        for change in &record.changeset.changes {
             let path = change.path().clone();
             let restore = match base {
                 Some(tree) => self.resolve(tree, &path)?,
@@ -158,7 +157,7 @@ impl Repository {
         changes: &[Change],
         onto: ObjectId,
     ) -> Result<Vec<Change>> {
-        let onto_tree = self.entry(onto)?.info.root_tree;
+        let onto_tree = self.info_of(onto)?.root_tree;
         let mut kept = Vec::new();
         let mut conflicts = Vec::new();
         for change in changes {
