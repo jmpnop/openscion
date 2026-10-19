@@ -27,6 +27,13 @@ This page tracks where things stand.
   (`rebase`, `revert`, `land`), and the matching `opnscn stat`, `ls`, `cat`,
   `diff`, `log`, `ancestor`, `merge-base`, `rebase`, `revert`, and `land`
   commands, which name a revision by object id or ref name.
+- **Persistent stores** ([research](docs/research/storage-persistence.md)): the
+  `ObjectStore` and `MetadataStore` ports as traits with `Repository` holding
+  them; a filesystem `ObjectStore` (git-style fanout, atomic
+  temp+fsync+rename); a SQLite `MetadataStore` behind the `sqlite` feature (WAL,
+  single-statement ref compare-and-swap, autoincrement LSN); crash-recovery
+  tests across an abrupt kill; and `openscion-server --data-dir`, so history
+  survives a restart. (MSRV raised to 1.90 for `rusqlite`.)
 
 ## Next
 
@@ -35,8 +42,10 @@ This page tracks where things stand.
 
 ## Later
 
-Persistent stores, the `opnscn` client and node daemon, git ingestion, network
-tiers, line-level blame and merge, virtual checkouts, read access control. A
+The `opnscn` client and node daemon, git ingestion, network tiers (where the
+distributed `MetadataStore` — Postgres/pgrust, Cassandra, or FoundationDB — and
+a propagation bus live), line-level blame and merge, virtual checkouts, read
+access control, and an S3 `ObjectStore`. A
 DuckDB-backed analytics plane ([ADR 0002](docs/adr/0002-duckdb-analytics-plane.md))
 and a Telegram cold object tier ([ADR 0003](docs/adr/0003-telegram-object-tier.md))
 are optional adjacent systems, not part of the serving path.
