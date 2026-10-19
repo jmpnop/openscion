@@ -19,6 +19,9 @@ pub enum Error {
     /// The listener failed while serving.
     #[error("server stopped: {0}")]
     Serve(#[source] std::io::Error),
+    /// The persistent data stores under `--data-dir` could not be opened.
+    #[error("cannot open the data store: {0}")]
+    Store(#[source] openscion_core::Error),
 }
 
 /// The server's standard result type.

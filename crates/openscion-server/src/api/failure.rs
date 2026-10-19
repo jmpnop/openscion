@@ -12,6 +12,7 @@ use openscion_core::{ErrorBody, ParseIdError, PathError};
 /// | --- | --- |
 /// | `NotFound`, a missing file | `404` |
 /// | `RefConflict`, `MergeConflict` | `409` |
+/// | `Storage`, `Database` (a backing store failed) | `500` |
 /// | anything the caller sent wrong | `400` |
 #[derive(Debug)]
 #[non_exhaustive]
@@ -51,6 +52,7 @@ impl ApiError {
                 let status = match error.code() {
                     "NotFound" => StatusCode::NOT_FOUND,
                     "RefConflict" | "MergeConflict" => StatusCode::CONFLICT,
+                    "Storage" | "Database" => StatusCode::INTERNAL_SERVER_ERROR,
                     _ => StatusCode::BAD_REQUEST,
                 };
                 (status, ErrorBody::new(error.code(), error.to_string()))

@@ -3,8 +3,11 @@
 //! In the architecture (`docs/specs/openscion-architecture.md`) the server owns
 //! the changeset log, the refs, and the derived-data indexes, and is the only
 //! component that creates changesets or moves refs. It serves the
-//! object, changeset, ref, query, and landing operations over an in-memory
-//! [`openscion_core::Repository`]; a restart starts from an empty repository.
+//! object, changeset, ref, query, and landing operations over an
+//! [`openscion_core::Repository`]. With `--data-dir` the repository is backed by
+//! the filesystem object store and the SQLite metadata store, so history
+//! survives a restart; without it everything is in memory and a restart starts
+//! empty.
 //!
 //! # Endpoints
 //!

@@ -241,6 +241,22 @@ fn a_merge_conflict_is_a_409() {
     assert_eq!(body.code, "MergeConflict");
 }
 
+#[test]
+fn backing_store_failures_are_500s() {
+    let storage = ApiError::from(openscion_core::Error::Storage {
+        path: "/x".to_owned(),
+        kind: std::io::ErrorKind::PermissionDenied,
+    });
+    assert_eq!(storage.parts().0, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(storage.parts().1.code, "Storage");
+
+    let database = ApiError::from(openscion_core::Error::Database {
+        message: "disk I/O error".to_owned(),
+    });
+    assert_eq!(database.parts().0, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(database.parts().1.code, "Database");
+}
+
 /// Builds a child changeset of `parent` with `changes` and returns its info.
 fn child(base: &str, parent: ObjectId, changes: Vec<Change>) -> ChangesetInfo {
     create(
@@ -454,4 +470,93 @@ fn a_conflicting_rebase_is_a_409() {
         serde_json::from_value::<ErrorBody>(body).unwrap().code,
         "MergeConflict"
     );
+}
+
+/// A fresh, non-existent data directory under the temp directory.
+fn scratch_dir() -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "openscion-srv-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
+}
+
+/// Starts a server persisting to `dir` and returns its base URL and a stop
+/// function that shuts it down and waits for it to release the data directory.
+fn start_persistent(dir: &std::path::Path) -> (String, impl FnOnce()) {
+    let config = ServerConfig::new("127.0.0.1:0".parse().unwrap()).with_data_dir(dir);
+    let (addr_tx, addr_rx) = std::sync::mpsc::channel();
+    let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let server = Server::bind(&config).await.unwrap();
+            addr_tx.send(server.local_addr()).unwrap();
+            server
+                .serve(async move {
+                    let _ = tokio::task::spawn_blocking(move || stop_rx.recv()).await;
+                })
+                .await
+                .unwrap();
+        });
+        let _ = done_tx.send(());
+    });
+    let base = format!("http://{}", addr_rx.recv().unwrap());
+    let stop = move || {
+        let _ = stop_tx.send(());
+        let _ = done_rx.recv();
+    };
+    (base, stop)
+}
+
+#[test]
+fn history_survives_a_server_restart() {
+    let dir = scratch_dir();
+
+    // Server 1: upload a blob, create a changeset, and move `main`.
+    let (base, stop) = start_persistent(&dir);
+    let ids = upload(&base, &[b"persist me"]);
+    let info = create(
+        &base,
+        &CreateChangeset::new(vec![], vec![file("a.txt", ids[0])], "t", "init"),
+    );
+    let (status, _) = post_json(
+        &format!("{base}/v1/refs/main"),
+        &UpdateRef::new(None, info.id),
+    );
+    assert_eq!(status, 200);
+    stop();
+
+    // Server 2 on the same data directory sees all of it after the restart.
+    let (base, stop) = start_persistent(&dir);
+    let (status, body) = get_json(&format!("{base}/v1/refs/main"));
+    assert_eq!(status, 200);
+    assert_eq!(
+        serde_json::from_value::<RefValue>(body).unwrap().target,
+        info.id
+    );
+    let (status, body) = get_json(&format!("{base}/v1/changesets/{}", info.id));
+    assert_eq!(status, 200);
+    assert_eq!(
+        serde_json::from_value::<ChangesetRecord>(body)
+            .unwrap()
+            .info,
+        info
+    );
+    // The object persisted in the filesystem store too.
+    let mut response = agent()
+        .post(format!("{base}/v1/objects"))
+        .send_json(FetchObjects::new(vec![ids[0]]))
+        .unwrap();
+    let bytes = response.body_mut().read_to_vec().unwrap();
+    let frames = decode_frames(&bytes).unwrap();
+    assert_eq!(frames[0], (ids[0], &b"persist me"[..]));
+    stop();
+
+    let _ = std::fs::remove_dir_all(&dir);
 }

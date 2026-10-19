@@ -18,8 +18,9 @@ path = "src/main.rs"
 
 [dependencies]
 # The engine and, through its re-export, the protocol payloads this server
-# answers with.
-openscion-core = { workspace = true }
+# answers with. The `sqlite` feature pulls in the persistent metadata store the
+# server selects with `--data-dir`.
+openscion-core = { workspace = true, features = ["sqlite"] }
 axum = { workspace = true }
 clap = { workspace = true }
 # The query routes deserialize their path and recursion flags from the URL

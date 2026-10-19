@@ -4,6 +4,7 @@
 //! same binary runs unchanged from a shell, a container, or a service manager.
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use clap::Parser;
 
@@ -25,10 +26,17 @@ pub struct ServerConfig {
     /// Address to listen on. Port 0 picks a free port.
     #[arg(long, env = "OPENSCION_LISTEN", default_value = DEFAULT_LISTEN)]
     pub listen: SocketAddr,
+
+    /// Directory to persist history in. Objects go under `objects/` and the
+    /// changeset log and refs in `meta.db`. Without it the server keeps
+    /// everything in memory and a restart starts empty.
+    #[arg(long, env = "OPENSCION_DATA_DIR")]
+    pub data_dir: Option<PathBuf>,
 }
 
 impl ServerConfig {
-    /// Builds a configuration that listens on `listen`.
+    /// Builds a configuration that listens on `listen` and keeps its history in
+    /// memory.
     ///
     /// # Examples
     ///
@@ -36,10 +44,21 @@ impl ServerConfig {
     /// # use openscion_server::ServerConfig;
     /// let config = ServerConfig::new("127.0.0.1:0".parse().unwrap());
     /// assert_eq!(config.listen.port(), 0);
+    /// assert!(config.data_dir.is_none());
     /// ```
     #[must_use]
     pub fn new(listen: SocketAddr) -> Self {
-        Self { listen }
+        Self {
+            listen,
+            data_dir: None,
+        }
+    }
+
+    /// Persists this configuration's history under `data_dir`.
+    #[must_use]
+    pub fn with_data_dir(mut self, data_dir: impl Into<PathBuf>) -> Self {
+        self.data_dir = Some(data_dir.into());
+        self
     }
 }
 

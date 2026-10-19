@@ -22,3 +22,14 @@ fn a_serve_error_renders_its_cause() {
     let error = Error::Serve(io::Error::other("listener closed"));
     assert_eq!(error.to_string(), "server stopped: listener closed");
 }
+
+#[test]
+fn a_store_error_names_its_cause() {
+    let error = Error::Store(openscion_core::Error::Database {
+        message: "disk full".to_owned(),
+    });
+    assert_eq!(
+        error.to_string(),
+        "cannot open the data store: metadata store error: disk full"
+    );
+}

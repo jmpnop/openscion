@@ -65,3 +65,15 @@ async fn binding_an_address_in_use_fails_with_bind() {
     let error = Server::bind(&taken).await.unwrap_err();
     assert!(matches!(error, Error::Bind { addr, .. } if addr == first.local_addr()));
 }
+
+#[tokio::test]
+async fn binding_with_an_unusable_data_dir_fails_with_store() {
+    // A data directory that is actually a file: the object store cannot create
+    // its subdirectory there, so opening the stores fails before binding.
+    let file = std::env::temp_dir().join(format!("openscion-notdir-{}", std::process::id()));
+    std::fs::write(&file, b"i am a file").unwrap();
+    let config = ServerConfig::new("127.0.0.1:0".parse().unwrap()).with_data_dir(&file);
+    let error = Server::bind(&config).await.unwrap_err();
+    assert!(matches!(error, Error::Store(_)));
+    let _ = std::fs::remove_file(&file);
+}

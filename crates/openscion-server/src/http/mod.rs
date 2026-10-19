@@ -11,7 +11,10 @@ use std::sync::{Arc, RwLock};
 
 use axum::routing::get;
 use axum::{Json, Router};
-use openscion_core::{PROTOCOL_VERSION, Repository, ServerInfo};
+use openscion_core::{
+    FilesystemObjectStore, PROTOCOL_VERSION, Repository, ServerInfo, SqliteMetadataStore,
+    SystemClock,
+};
 use tokio::net::TcpListener;
 
 use crate::{Error, Result, ServerConfig, SharedRepository, api};
@@ -43,7 +46,8 @@ async fn version() -> Json<ServerInfo> {
     Json(ServerInfo::new(env!("CARGO_PKG_VERSION"), PROTOCOL_VERSION))
 }
 
-/// A bound, not-yet-serving server with its own empty in-memory repository.
+/// A bound, not-yet-serving server with its repository: persistent when the
+/// configuration names a data directory, in memory otherwise.
 #[derive(Debug)]
 pub struct Server {
     listener: TcpListener,
@@ -58,6 +62,8 @@ impl Server {
     ///
     /// Returns [`Error::Bind`] when the address cannot be bound.
     pub async fn bind(config: &ServerConfig) -> Result<Self> {
+        // Open the stores before binding, so a bad data directory fails fast.
+        let repository = Arc::new(RwLock::new(repository(config)?));
         let bind_error = |source| Error::Bind {
             addr: config.listen,
             source,
@@ -67,7 +73,7 @@ impl Server {
         Ok(Self {
             listener,
             local_addr,
-            repository: Arc::new(RwLock::new(Repository::new())),
+            repository,
         })
     }
 
@@ -88,6 +94,23 @@ impl Server {
             .with_graceful_shutdown(shutdown)
             .await
             .map_err(Error::Serve)
+    }
+}
+
+/// Builds the repository the server serves: the filesystem and SQLite stores
+/// under the data directory, or in-memory stores when none is configured.
+fn repository(config: &ServerConfig) -> Result<Repository> {
+    match &config.data_dir {
+        None => Ok(Repository::new()),
+        Some(dir) => {
+            let objects = FilesystemObjectStore::open(dir.join("objects")).map_err(Error::Store)?;
+            let meta = SqliteMetadataStore::open(dir.join("meta.db")).map_err(Error::Store)?;
+            Ok(Repository::with_stores(
+                Box::new(objects),
+                Box::new(meta),
+                Box::new(SystemClock),
+            ))
+        }
     }
 }
 
