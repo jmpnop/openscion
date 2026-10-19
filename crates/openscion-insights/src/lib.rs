@@ -2,7 +2,8 @@
 //!
 //! This crate is **not** part of the serving path and backs neither storage
 //! port. It ingests an append-only export of changeset records — the same
-//! [`ChangesetRecord`]s the log holds — into an embedded columnar database and
+//! [`ChangesetRecord`](openscion_proto::ChangesetRecord)s the log holds — into
+//! an embedded columnar database and
 //! answers analytical questions across history: which paths change most, who
 //! changes them, and which paths tend to change together. Serving queries like
 //! `Log` and `Diff` stay in the engine; this is for cross-history aggregation
