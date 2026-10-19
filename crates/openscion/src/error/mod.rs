@@ -79,6 +79,10 @@ pub enum Error {
     /// `opnscn commit` found no changes.
     #[error("nothing to commit")]
     NothingToCommit,
+    /// The filesystem watcher behind `opnscn watch` could not be set up or
+    /// failed while running.
+    #[error("filesystem watch failed: {0}")]
+    Watch(String),
     /// Writing command output failed.
     #[error("cannot write output: {0}")]
     Output(#[source] std::io::Error),

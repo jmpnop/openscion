@@ -51,13 +51,24 @@ This page tracks where things stand.
   `status` and `commit`, so they can never disagree about what changed. First
   chunk of phase 5.
 
+- **Watcher-backed status** ([spec](docs/specs/openscion-client-watch.md),
+  [plan](docs/plans/openscion-client-watch.md)): `opnscn watch`, a long-running
+  render of a working copy's pending changes that re-renders as files change,
+  re-examining only the paths a filesystem event named instead of walking the
+  tree. Its answer always equals a full `opnscn status`: the first render is a
+  full scan, each later change is re-verified through the shared classifier, and
+  any overflow or un-attributable event forces a full rescan. The event-folding
+  and rendering core is pure and deterministic; a thin `notify` adapter feeds it
+  native events. Second chunk of phase 5.
+
 ## Next
 
-1. **`opnscn` client and node daemon** (phase 5, continued): a filesystem
-   watcher that makes `status` incremental rather than a full rescan;
-   first-class sparse-set management (editing the checked-out paths after a
-   clone); and the node daemon with its node-local store and snapshot boot.
-   `status`, `commit`, and `land` already exist in the client.
+1. **`opnscn` client and node daemon** (phase 5, continued): first-class
+   sparse-set management (editing the checked-out paths after a clone); and the
+   node daemon with its node-local store and snapshot boot. `status`, `watch`,
+   `commit`, and `land` already exist in the client. The daemon's transport
+   (client-to-daemon over a local socket, and daemon-to-cache between machines)
+   is still an open architecture question to settle before it is built.
 
 ## Later
 

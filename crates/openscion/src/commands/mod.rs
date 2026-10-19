@@ -40,7 +40,7 @@ pub(crate) use commit::commit;
 pub(crate) use import::import;
 pub(crate) use landing::{land, rebase, revert};
 pub(crate) use query::{DEFAULT_LOG_LIMIT, ancestor, cat, diff, log, ls, merge_base, stat};
-pub(crate) use status::status;
+pub(crate) use status::{StatusCode, status};
 
 use openscion_core::{FrameWriter, ObjectId};
 

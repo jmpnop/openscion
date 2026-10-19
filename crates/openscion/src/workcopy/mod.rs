@@ -111,15 +111,9 @@ fn walk(dir: &Path, prefix: &str, out: &mut Vec<Scanned>) -> Result<()> {
         }
         let path = format!("{prefix}{name}");
         let meta = fs::symlink_metadata(&full).map_err(io_error(&full))?;
-        let kind = if meta.is_dir() {
+        let Some(kind) = entry_kind(&meta) else {
             walk(&full, &format!("{path}/"), out)?;
             continue;
-        } else if meta.file_type().is_symlink() {
-            EntryKind::Symlink
-        } else if is_executable(&meta) {
-            EntryKind::Executable
-        } else {
-            EntryKind::File
         };
         out.push(Scanned {
             path,
@@ -130,6 +124,46 @@ fn walk(dir: &Path, prefix: &str, out: &mut Vec<Scanned>) -> Result<()> {
         });
     }
     Ok(())
+}
+
+/// The entry kind the scan records for a path, or `None` for a directory, which
+/// holds no tracked bytes of its own and is recursed into instead. A symlink is
+/// a symlink even when it points at a directory, since the metadata comes from
+/// `symlink_metadata`.
+fn entry_kind(meta: &fs::Metadata) -> Option<EntryKind> {
+    if meta.is_dir() {
+        None
+    } else if meta.file_type().is_symlink() {
+        Some(EntryKind::Symlink)
+    } else if is_executable(meta) {
+        Some(EntryKind::Executable)
+    } else {
+        Some(EntryKind::File)
+    }
+}
+
+/// Scans one path relative to `root`, as [`scan`] would see it: `Some(Scanned)`
+/// for a file, executable, or symlink; `None` when it is absent or is a
+/// directory. This is the single-path form the watcher uses to re-examine just
+/// the paths an event named, instead of walking the whole tree.
+///
+/// # Errors
+///
+/// Returns [`Error::Io`] when the path exists but cannot be stat'd.
+pub(crate) fn scan_one(root: &Path, path: &str) -> Result<Option<Scanned>> {
+    let full = root.join(path);
+    let meta = match fs::symlink_metadata(&full) {
+        Ok(meta) => meta,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(source) => return Err(Error::Io { path: full, source }),
+    };
+    Ok(entry_kind(&meta).map(|kind| Scanned {
+        path: path.to_owned(),
+        kind,
+        size: meta.len(),
+        mtime: meta.modified().map_or(0, nanos),
+        ctime: change_time(&meta),
+    }))
 }
 
 /// The inode change time of `meta` in nanoseconds since the epoch, or `0` on a

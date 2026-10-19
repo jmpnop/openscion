@@ -8,8 +8,7 @@ use std::path::Path;
 
 use openscion_core::{FrameWriter, ObjectId, ObjectKind, RepoPath, object_id};
 
-use super::status::StatusCode;
-use super::{clone, commit, import, status};
+use super::{StatusCode, clone, commit, import, status};
 use crate::test_support::{real_server, scratch};
 use crate::{Error, ServerClient};
 

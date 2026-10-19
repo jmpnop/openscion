@@ -83,6 +83,13 @@ pub enum Command {
         #[arg(long, default_value = ".")]
         dir: PathBuf,
     },
+    /// Watch a working copy and render its pending changes live, re-rendering
+    /// as files change. Reads only local state; runs until interrupted.
+    Watch {
+        /// The working copy.
+        #[arg(long, default_value = ".")]
+        dir: PathBuf,
+    },
     /// Fetch a ref's snapshot into a new working copy, or only one directory
     /// of it with `--path`.
     Clone {
@@ -219,6 +226,7 @@ pub fn run(cli: &Cli, out: &mut impl Write) -> Result<()> {
             author,
         } => commit_cmd(dir, author, message, out),
         Command::Status { dir } => status_cmd(dir, out),
+        Command::Watch { dir } => crate::watch::watch(dir, out),
         Command::Clone {
             dest,
             ref_name,

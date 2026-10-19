@@ -68,6 +68,12 @@ clap = { version = "4", features = ["derive", "env"] }
 # until a deployment needs it; plain HTTP to a local or private server is the
 # only supported setup today.
 ureq = { version = "3", default-features = false, features = ["json"] }
+# The CLI's filesystem watcher for `opnscn watch`: the maintained cross-platform
+# watch crate (FSEvents, inotify, ReadDirectoryChangesW). The standard library
+# has no filesystem-watch primitive, so this is the first-party choice. Only the
+# recommended native backend is used; defaults stay on so each platform picks
+# its native watcher rather than falling back to polling.
+notify = "8"
 
 # Lints apply to every member that opts in with `[lints] workspace = true`, and
 # to every target of that member. CI runs clippy with `-D warnings`, so anything

@@ -26,6 +26,8 @@ ureq = { workspace = true }
 # Request and response bodies, and the working copy's `.opnscn/state.json`.
 serde = { workspace = true }
 serde_json = { workspace = true }
+# The filesystem watcher behind `opnscn watch`.
+notify = { workspace = true }
 
 [dev-dependencies]
 # Tests run a real server in-process and point the client at it.

@@ -27,3 +27,5 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a test-first sample
   routes, `opnscn` import / commit / clone, and the benchmark backend.
 - [`openscion-client-status.md`](openscion-client-status.md) — `opnscn status`, the
   read-only working-copy change report (phase 5).
+- [`openscion-client-watch.md`](openscion-client-watch.md) — `opnscn watch`, the
+  filesystem-watcher-backed live status (phase 5).

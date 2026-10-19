@@ -10,6 +10,8 @@
 //! | `opnscn server-info` | asks the server for its version and checks the protocol binds |
 //! | `opnscn import [DIR]` | records a directory as the first changeset and creates `main` |
 //! | `opnscn commit -m MSG` | records what changed and moves `main` by compare-and-swap |
+//! | `opnscn status` | reports a working copy's pending changes, read-only |
+//! | `opnscn watch` | renders those changes live as files change, via a filesystem watcher |
 //! | `opnscn clone DEST [--path DIR]` | fetches a snapshot, or one directory of it |
 //! | `opnscn stat PATH` | prints the entry at a path in a snapshot |
 //! | `opnscn ls [PATH]` | lists the entries under a path, with `--recursive` |
@@ -53,6 +55,7 @@ mod commands;
 mod error;
 #[cfg(test)]
 mod test_support;
+mod watch;
 mod workcopy;
 
 pub use cli::{
