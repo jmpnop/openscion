@@ -8,7 +8,8 @@ use std::fs;
 use openscion_core::{EntryKind, ObjectId};
 
 use super::{
-    Classified, FileState, Scanned, State, classify, load, save, scan, unchanged, write_file,
+    Classified, FileState, Scanned, Sparse, State, classify, load, save, scan, unchanged,
+    write_file,
 };
 use crate::Error;
 use crate::test_support::scratch;
@@ -54,7 +55,7 @@ fn state_round_trips_and_stamps_its_write_time() {
         server: "http://h:1".to_owned(),
         ref_name: "main".to_owned(),
         base: ObjectId::from_bytes([1; 32]),
-        sparse: Some("dir".to_owned()),
+        sparse: Sparse::cone(["dir".to_owned()]),
         written_at: 0,
         files: BTreeMap::from([(
             "a".to_owned(),
@@ -236,7 +237,7 @@ fn state_for(root: &std::path::Path, written_at: u64) -> State {
         server: "http://h:1".to_owned(),
         ref_name: "main".to_owned(),
         base: ObjectId::from_bytes([0; 32]),
-        sparse: None,
+        sparse: Sparse::Full,
         written_at,
         files,
     }
@@ -328,6 +329,92 @@ fn classify_sees_a_kind_change_with_identical_bytes_as_a_modification() {
         } => assert_eq!(blob, super::blob_id(b"#!/bin/sh\n"), "same bytes"),
         _ => panic!("a kind change is a modification even with identical bytes"),
     }
+}
+
+#[test]
+fn sparse_covers_only_paths_under_its_prefixes() {
+    assert!(Sparse::Full.covers("anything/at/all"));
+    let cone = Sparse::cone(["src".to_owned()]);
+    assert!(cone.covers("src"));
+    assert!(cone.covers("src/lib.rs"));
+    assert!(cone.covers("src/bin/main.rs"));
+    assert!(!cone.covers("srcfoo"));
+    assert!(!cone.covers("docs/guide.md"));
+}
+
+#[test]
+fn sparse_normalizes_into_a_sorted_antichain() {
+    // A nested entry is absorbed by its parent; duplicates collapse.
+    let cone = Sparse::cone([
+        "src/bin".to_owned(),
+        "src".to_owned(),
+        "docs".to_owned(),
+        "docs".to_owned(),
+    ]);
+    assert_eq!(cone.prefixes(), ["docs", "src"]);
+    // Inserting a path already covered is a no-op.
+    let mut cone = Sparse::cone(["src".to_owned()]);
+    cone.insert("src/bin".to_owned());
+    assert_eq!(cone.prefixes(), ["src"]);
+    // Inserting a parent replaces the entries nested under it.
+    cone.insert("src".to_owned());
+    let mut wide = Sparse::cone(["a/b".to_owned(), "a/c".to_owned()]);
+    wide.insert("a".to_owned());
+    assert_eq!(wide.prefixes(), ["a"]);
+}
+
+#[test]
+fn sparse_remove_takes_whole_entries_only() {
+    let mut cone = Sparse::cone(["docs".to_owned(), "src".to_owned()]);
+    assert!(cone.remove("src"));
+    assert_eq!(cone.prefixes(), ["docs"]);
+    assert!(!cone.remove("nope"));
+    // A path only covered by a broader entry is not itself removable.
+    assert!(!cone.remove("docs/guide.md"));
+    // Nothing to remove from a full checkout.
+    assert!(!Sparse::Full.remove("src"));
+}
+
+#[test]
+fn sparse_reads_the_legacy_forms_and_round_trips() {
+    // The single-string shape from before the set was a set.
+    assert_eq!(
+        serde_json::from_str::<Sparse>("\"docs\"").unwrap(),
+        Sparse::cone(["docs".to_owned()])
+    );
+    // Null and an absent field both mean a full checkout.
+    assert_eq!(
+        serde_json::from_str::<Sparse>("null").unwrap(),
+        Sparse::Full
+    );
+    assert_eq!(serde_json::to_string(&Sparse::Full).unwrap(), "null");
+    // The array form round-trips.
+    let cone = Sparse::cone(["docs".to_owned(), "src".to_owned()]);
+    let json = serde_json::to_string(&cone).unwrap();
+    assert_eq!(json, "[\"docs\",\"src\"]");
+    assert_eq!(serde_json::from_str::<Sparse>(&json).unwrap(), cone);
+}
+
+#[test]
+fn a_state_with_the_legacy_or_absent_sparse_field_still_loads() {
+    let root = scratch("legacy-sparse");
+    fs::create_dir_all(root.join(".opnscn")).unwrap();
+    let zero = ObjectId::from_bytes([0; 32]);
+    // The old single-string form becomes a one-entry cone.
+    let legacy = format!(
+        r#"{{"server":"http://h:1","ref_name":"main","base":"{zero}","sparse":"docs","written_at":1,"files":{{}}}}"#
+    );
+    fs::write(root.join(".opnscn/state.json"), legacy).unwrap();
+    assert_eq!(
+        load(&root).unwrap().sparse,
+        Sparse::cone(["docs".to_owned()])
+    );
+    // A state with no sparse field at all is a full checkout.
+    let absent = format!(
+        r#"{{"server":"http://h:1","ref_name":"main","base":"{zero}","written_at":1,"files":{{}}}}"#
+    );
+    fs::write(root.join(".opnscn/state.json"), absent).unwrap();
+    assert_eq!(load(&root).unwrap().sparse, Sparse::Full);
 }
 
 #[test]

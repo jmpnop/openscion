@@ -8,8 +8,9 @@ use std::path::Path;
 
 use openscion_core::{FrameWriter, ObjectId, ObjectKind, RepoPath, object_id};
 
-use super::{StatusCode, clone, commit, import, status};
+use super::{StatusCode, clone, commit, import, sparse_add, sparse_remove, sparse_show, status};
 use crate::test_support::{real_server, scratch};
+use crate::workcopy::Sparse;
 use crate::{Error, ServerClient};
 
 /// Every file under `root` except the state directory, with its contents.
@@ -273,6 +274,97 @@ fn status_does_not_write_the_state() {
 fn status_outside_a_working_copy_fails() {
     let root = scratch("status-not-a-copy");
     assert!(matches!(status(&root), Err(Error::NotAWorkingCopy(_))));
+}
+
+#[test]
+fn sparse_add_materializes_and_tracks_more_paths() {
+    let (client, _) = imported();
+    let dest = scratch("sparse-add");
+    clone(
+        &client,
+        "main",
+        &dest,
+        Some(&RepoPath::new("docs").unwrap()),
+    )
+    .unwrap();
+    assert_eq!(
+        sparse_show(&dest).unwrap(),
+        Sparse::cone(["docs".to_owned()])
+    );
+
+    let added = sparse_add(&dest, &[RepoPath::new("src").unwrap()]).unwrap();
+    assert_eq!(added, 2);
+    assert_eq!(
+        sparse_show(&dest).unwrap(),
+        Sparse::cone(["docs".to_owned(), "src".to_owned()])
+    );
+    assert!(dest.join("src/lib.rs").exists());
+    assert!(
+        status(&dest).unwrap().is_empty(),
+        "the fetched files are clean"
+    );
+
+    // A path already covered materializes nothing.
+    assert_eq!(
+        sparse_add(&dest, &[RepoPath::new("src/bin").unwrap()]).unwrap(),
+        0
+    );
+}
+
+#[test]
+fn sparse_remove_deletes_untracks_and_prunes() {
+    let (client, _) = imported();
+    let dest = scratch("sparse-remove");
+    clone(
+        &client,
+        "main",
+        &dest,
+        Some(&RepoPath::new("docs").unwrap()),
+    )
+    .unwrap();
+    sparse_add(&dest, &[RepoPath::new("src").unwrap()]).unwrap();
+
+    let removed = sparse_remove(&dest, &[RepoPath::new("docs").unwrap()]).unwrap();
+    assert_eq!(removed, 2);
+    assert_eq!(
+        sparse_show(&dest).unwrap(),
+        Sparse::cone(["src".to_owned()])
+    );
+    assert!(
+        !dest.join("docs").exists(),
+        "the emptied directory is pruned"
+    );
+    assert!(dest.join("src/lib.rs").exists());
+    // Nothing tracked is missing, so status reports no pending deletion.
+    assert!(status(&dest).unwrap().is_empty());
+}
+
+#[test]
+fn sparse_add_and_remove_reject_a_full_checkout() {
+    let (_, root) = imported();
+    assert!(matches!(
+        sparse_add(&root, &[RepoPath::new("src").unwrap()]),
+        Err(Error::FullCheckout)
+    ));
+    assert!(matches!(
+        sparse_remove(&root, &[RepoPath::new("src").unwrap()]),
+        Err(Error::FullCheckout)
+    ));
+}
+
+#[test]
+fn sparse_remove_rejects_a_path_that_is_not_an_entry() {
+    let (client, _) = imported();
+    let dest = scratch("sparse-remove-bad");
+    clone(
+        &client,
+        "main",
+        &dest,
+        Some(&RepoPath::new("docs").unwrap()),
+    )
+    .unwrap();
+    let error = sparse_remove(&dest, &[RepoPath::new("src").unwrap()]).unwrap_err();
+    assert!(matches!(error, Error::NotInSparse(path) if path == "src"));
 }
 
 #[test]

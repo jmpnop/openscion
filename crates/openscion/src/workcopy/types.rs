@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 use openscion_core::{EntryKind, ObjectId};
 use serde::{Deserialize, Serialize};
 
+use super::Sparse;
+
 /// What `opnscn` remembers about a working copy, in `.opnscn/state.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct State {
@@ -14,8 +16,11 @@ pub(crate) struct State {
     pub(crate) ref_name: String,
     /// The changeset the files on disk were last synced with.
     pub(crate) base: ObjectId,
-    /// The directory a sparse clone was limited to, if any.
-    pub(crate) sparse: Option<String>,
+    /// Which paths of the tree this working copy materializes: the whole tree,
+    /// or a cone of prefixes. Absent or a lone string in an older state loads
+    /// as full or a one-entry cone respectively.
+    #[serde(default)]
+    pub(crate) sparse: Sparse,
     /// When the state was written, in nanoseconds since the Unix epoch. A
     /// file modified at or after this instant cannot be trusted from its stat
     /// data alone, the same "racily clean" rule git applies to its index.

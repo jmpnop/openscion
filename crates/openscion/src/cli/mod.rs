@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use clap::{Parser, Subcommand};
 use openscion_core::{PROTOCOL_VERSION, RepoPath};
 
+use crate::workcopy::Sparse;
 use crate::{Error, Result, ServerClient, commands};
 
 /// The server `opnscn` talks to when neither `--server` nor `OPENSCION_SERVER`
@@ -86,6 +87,16 @@ pub enum Command {
     /// Watch a working copy and render its pending changes live, re-rendering
     /// as files change. Reads only local state; runs until interrupted.
     Watch {
+        /// The working copy.
+        #[arg(long, default_value = ".")]
+        dir: PathBuf,
+    },
+    /// Show or edit which paths of the tree a working copy materializes. With
+    /// no subcommand, prints the current set.
+    Sparse {
+        /// What to do: show (default), add paths, or remove paths.
+        #[command(subcommand)]
+        action: Option<SparseAction>,
         /// The working copy.
         #[arg(long, default_value = ".")]
         dir: PathBuf,
@@ -202,6 +213,26 @@ pub enum Command {
     },
 }
 
+/// What `opnscn sparse` does: show the set, or widen or narrow it.
+#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
+#[non_exhaustive]
+pub enum SparseAction {
+    /// Print the paths this working copy materializes.
+    Show,
+    /// Materialize more paths, fetching them from the server.
+    Add {
+        /// The paths to add.
+        #[arg(required = true)]
+        paths: Vec<String>,
+    },
+    /// Stop materializing paths, deleting their files from disk.
+    Remove {
+        /// The paths to remove.
+        #[arg(required = true)]
+        paths: Vec<String>,
+    },
+}
+
 /// Runs `cli`, writing its output to `out`.
 ///
 /// # Errors
@@ -227,6 +258,7 @@ pub fn run(cli: &Cli, out: &mut impl Write) -> Result<()> {
         } => commit_cmd(dir, author, message, out),
         Command::Status { dir } => status_cmd(dir, out),
         Command::Watch { dir } => crate::watch::watch(dir, out),
+        Command::Sparse { action, dir } => sparse_cmd(dir, action.as_ref(), out),
         Command::Clone {
             dest,
             ref_name,
@@ -319,6 +351,46 @@ fn status_cmd(dir: &Path, out: &mut impl Write) -> Result<()> {
         writeln!(out, "{} {path}", code.letter()).map_err(Error::Output)?;
     }
     Ok(())
+}
+
+/// Shows or edits the working copy's sparse set, reporting the file count for
+/// an edit.
+fn sparse_cmd(dir: &Path, action: Option<&SparseAction>, out: &mut impl Write) -> Result<()> {
+    match action {
+        None | Some(SparseAction::Show) => show_sparse(&commands::sparse_show(dir)?, out),
+        Some(SparseAction::Add { paths }) => {
+            let count = commands::sparse_add(dir, &repo_paths(paths)?)?;
+            writeln!(out, "added {count} files").map_err(Error::Output)
+        }
+        Some(SparseAction::Remove { paths }) => {
+            let count = commands::sparse_remove(dir, &repo_paths(paths)?)?;
+            writeln!(out, "removed {count} files").map_err(Error::Output)
+        }
+    }
+}
+
+/// Prints the sparse set: `full checkout`, the prefixes one per line, or a note
+/// when the cone is empty.
+fn show_sparse(sparse: &Sparse, out: &mut impl Write) -> Result<()> {
+    if sparse.is_full() {
+        return writeln!(out, "full checkout").map_err(Error::Output);
+    }
+    let prefixes = sparse.prefixes();
+    if prefixes.is_empty() {
+        return writeln!(out, "sparse checkout of no paths").map_err(Error::Output);
+    }
+    for prefix in prefixes {
+        writeln!(out, "{prefix}").map_err(Error::Output)?;
+    }
+    Ok(())
+}
+
+/// Parses command-line path arguments into validated repository paths.
+fn repo_paths(paths: &[String]) -> Result<Vec<RepoPath>> {
+    paths
+        .iter()
+        .map(|path| RepoPath::new(path).map_err(Error::from))
+        .collect()
 }
 
 /// Clones `ref_name` into `dest`, optionally only the directory at `path`.

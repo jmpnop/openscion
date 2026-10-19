@@ -8,7 +8,7 @@ use openscion_core::{
 };
 
 use super::FETCH_BATCH;
-use crate::workcopy::{self, FileState, State};
+use crate::workcopy::{self, FileState, Sparse, State};
 use crate::{Error, Result, ServerClient};
 
 /// A file to fetch: its path, kind, and blob.
@@ -28,9 +28,42 @@ pub(crate) fn clone(
     let target = client.get_ref(ref_name)?.target;
     let root_tree = client.changeset(target)?.info.root_tree;
     let filter: Vec<&str> = sparse.map_or_else(Vec::new, |path| path.components().collect());
-    let wanted = walk_trees(client, root_tree, &filter)?;
 
     std::fs::create_dir_all(dest).map_err(workcopy::io_error(dest))?;
+    let files = fetch_into(client, root_tree, &filter, dest)?;
+    let count = files.len();
+    let sparse = match sparse {
+        Some(path) => Sparse::cone([path.as_str().to_owned()]),
+        None => Sparse::Full,
+    };
+    let mut state = State {
+        server: client.base().to_owned(),
+        ref_name: ref_name.to_owned(),
+        base: target,
+        sparse,
+        written_at: 0,
+        files,
+    };
+    workcopy::save(dest, &mut state)?;
+    Ok((target, count))
+}
+
+/// Walks the snapshot `root_tree` under `filter` (everything when it is empty),
+/// fetches and verifies the blobs in batches, writes each file into `dest`, and
+/// returns the tracked-file entries for the state. Shared by [`clone`] and
+/// `sparse add`.
+///
+/// # Errors
+///
+/// As [`clone`]: the client and verification errors, and the working-copy write
+/// errors.
+pub(super) fn fetch_into(
+    client: &ServerClient,
+    root_tree: ObjectId,
+    filter: &[&str],
+    dest: &Path,
+) -> Result<BTreeMap<String, FileState>> {
+    let wanted = walk_trees(client, root_tree, filter)?;
     let mut files = BTreeMap::new();
     for batch in wanted.chunks(FETCH_BATCH) {
         let ids = unique(batch.iter().map(|(_, _, blob)| *blob));
@@ -53,17 +86,7 @@ pub(crate) fn clone(
             );
         }
     }
-    let count = files.len();
-    let mut state = State {
-        server: client.base().to_owned(),
-        ref_name: ref_name.to_owned(),
-        base: target,
-        sparse: sparse.map(|path| path.as_str().to_owned()),
-        written_at: 0,
-        files,
-    };
-    workcopy::save(dest, &mut state)?;
-    Ok((target, count))
+    Ok(files)
 }
 
 fn is_empty_dir(path: &Path) -> Result<bool> {

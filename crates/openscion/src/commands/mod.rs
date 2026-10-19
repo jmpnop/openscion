@@ -19,6 +19,10 @@
 //!   modified, and deleted files — from local state alone, without touching
 //!   the server. It and `commit` classify a file the same way, so they never
 //!   disagree about what changed.
+//! - **sparse** ([`sparse_show`], [`sparse_add`], [`sparse_remove`]) shows and
+//!   edits which paths the working copy materializes: `add` fetches more of the
+//!   tree from the server, `remove` deletes paths locally. `add` reuses the
+//!   same fetch as `clone`.
 //!
 //! The **query** commands ([`query`]) read what the server already knows —
 //! `stat`, `ls`, `cat`, `diff`, `log`, `ancestor`, and `merge-base` — and the
@@ -33,6 +37,7 @@ mod commit;
 mod import;
 mod landing;
 mod query;
+mod sparse;
 mod status;
 
 pub(crate) use clone::clone;
@@ -40,6 +45,7 @@ pub(crate) use commit::commit;
 pub(crate) use import::import;
 pub(crate) use landing::{land, rebase, revert};
 pub(crate) use query::{DEFAULT_LOG_LIMIT, ancestor, cat, diff, log, ls, merge_base, stat};
+pub(crate) use sparse::{add as sparse_add, remove as sparse_remove, show as sparse_show};
 pub(crate) use status::{StatusCode, status};
 
 use openscion_core::{FrameWriter, ObjectId};

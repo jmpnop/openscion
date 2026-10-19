@@ -60,15 +60,24 @@ This page tracks where things stand.
   any overflow or un-attributable event forces a full rescan. The event-folding
   and rendering core is pure and deterministic; a thin `notify` adapter feeds it
   native events. Second chunk of phase 5.
+- **Sparse checkout management** ([spec](docs/specs/openscion-client-sparse.md),
+  [plan](docs/plans/openscion-client-sparse.md)): the sparse checkout is now a
+  first-class, editable set. `opnscn sparse` shows the materialized paths;
+  `sparse add` widens the checkout, fetching more of the tree from the server
+  (reusing the same fetch as `clone`); `sparse remove` narrows it, deleting
+  paths locally and pruning emptied directories. One membership rule — the
+  `Sparse` type — is shared by clone, add, and remove, the set stays a
+  normalized antichain, and a working copy written with the earlier
+  single-string form still loads. Third chunk of phase 5.
 
 ## Next
 
-1. **`opnscn` client and node daemon** (phase 5, continued): first-class
-   sparse-set management (editing the checked-out paths after a clone); and the
-   node daemon with its node-local store and snapshot boot. `status`, `watch`,
-   `commit`, and `land` already exist in the client. The daemon's transport
-   (client-to-daemon over a local socket, and daemon-to-cache between machines)
-   is still an open architecture question to settle before it is built.
+1. **Node daemon** (phase 5, concluding): the node-local object/metadata store
+   and snapshot boot. The client side of phase 5 is done — `clone` (sparse or
+   full), `status`, `watch`, `sparse` add/remove, `commit`, and `land`. The
+   daemon's transport (client-to-daemon over a local socket, and
+   daemon-to-cache between machines) is still an open architecture question to
+   settle before it is built.
 
 ## Later
 

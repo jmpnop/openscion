@@ -7,6 +7,7 @@
 | [OpenScion API](openscion-api.md) | Draft |
 | [Working-copy status](openscion-client-status.md) | Accepted |
 | [Watcher-backed status](openscion-client-watch.md) | Accepted |
+| [Sparse checkout management](openscion-client-sparse.md) | Accepted |
 
 Specifications define what the system must do before implementation details
 take over. Create one for behavior that changes a public API, crosses module

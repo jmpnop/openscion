@@ -18,7 +18,7 @@ use super::{
 };
 use crate::commands::StatusCode;
 use crate::test_support::scratch;
-use crate::workcopy::{self, FileState, State};
+use crate::workcopy::{self, FileState, Sparse, State};
 
 /// Builds a working copy on disk with the given files tracked and clean, with no
 /// server — enough for the local watcher to open and scan.
@@ -47,7 +47,7 @@ fn working_copy(files: &[(&str, &[u8])]) -> PathBuf {
         server: "http://127.0.0.1:1".to_owned(),
         ref_name: "main".to_owned(),
         base: ObjectId::from_bytes([0; 32]),
-        sparse: None,
+        sparse: Sparse::Full,
         written_at: 0,
         files: tracked,
     };

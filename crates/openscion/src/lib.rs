@@ -13,6 +13,7 @@
 //! | `opnscn status` | reports a working copy's pending changes, read-only |
 //! | `opnscn watch` | renders those changes live as files change, via a filesystem watcher |
 //! | `opnscn clone DEST [--path DIR]` | fetches a snapshot, or one directory of it |
+//! | `opnscn sparse [add\|remove PATHS…]` | shows or edits which paths the working copy materializes |
 //! | `opnscn stat PATH` | prints the entry at a path in a snapshot |
 //! | `opnscn ls [PATH]` | lists the entries under a path, with `--recursive` |
 //! | `opnscn cat PATH` | writes a file's bytes to standard output |
@@ -59,7 +60,8 @@ mod watch;
 mod workcopy;
 
 pub use cli::{
-    Cli, Command, DEFAULT_AUTHOR, DEFAULT_LAND_ATTEMPTS, DEFAULT_REF, DEFAULT_SERVER, run,
+    Cli, Command, DEFAULT_AUTHOR, DEFAULT_LAND_ATTEMPTS, DEFAULT_REF, DEFAULT_SERVER, SparseAction,
+    run,
 };
 pub use client::ServerClient;
 pub use error::{Error, Result};

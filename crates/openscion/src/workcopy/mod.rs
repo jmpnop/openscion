@@ -20,6 +20,7 @@
 //! Symlinks are stored as their target. On Unix a file with any execute bit
 //! is an executable. Paths that are not UTF-8 are rejected.
 
+mod sparse;
 mod types;
 
 use std::fs;
@@ -29,6 +30,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use openscion_core::{EntryKind, ObjectId, ObjectKind, object_id};
 
 use crate::{Error, Result};
+pub(crate) use sparse::Sparse;
 pub(crate) use types::{FileState, Scanned, State};
 
 /// The directory `opnscn` keeps its state in, at the working-copy root.
@@ -332,6 +334,34 @@ fn make_executable(full: &Path) -> Result<()> {
 #[cfg(not(unix))]
 fn make_executable(_: &Path) -> Result<()> {
     Ok(())
+}
+
+/// Removes the file at `path` from the working copy and prunes any directories
+/// left empty by its removal, up to but not including the root. Used by
+/// `sparse remove` to drop a narrowed path's files.
+///
+/// # Errors
+///
+/// Returns [`Error::Io`] when the file or an emptied directory cannot be
+/// removed.
+pub(crate) fn remove_file(root: &Path, path: &str) -> Result<()> {
+    let full = root.join(path);
+    fs::remove_file(&full).map_err(io_error(&full))?;
+    let mut dir = full.parent();
+    while let Some(current) = dir {
+        if current == root || !is_empty_dir(current) {
+            break;
+        }
+        fs::remove_dir(current).map_err(io_error(current))?;
+        dir = current.parent();
+    }
+    Ok(())
+}
+
+/// Whether `dir` has no entries. A read error counts as non-empty, so a
+/// directory is never removed on the strength of a failed read.
+fn is_empty_dir(dir: &Path) -> bool {
+    fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_none())
 }
 
 /// The stat data of a file just written, for the state: size, modification

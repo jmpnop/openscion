@@ -83,6 +83,14 @@ pub enum Error {
     /// failed while running.
     #[error("filesystem watch failed: {0}")]
     Watch(String),
+    /// `opnscn sparse add` or `remove` was run on a full checkout, which has no
+    /// sparse set to edit.
+    #[error("the working copy is a full checkout; there are no sparse paths to edit")]
+    FullCheckout,
+    /// `opnscn sparse remove` was given a path that is not an entry in the
+    /// sparse set.
+    #[error("{0} is not an entry in the sparse set")]
+    NotInSparse(String),
     /// Writing command output failed.
     #[error("cannot write output: {0}")]
     Output(#[source] std::io::Error),

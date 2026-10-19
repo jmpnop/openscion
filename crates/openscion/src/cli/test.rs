@@ -198,6 +198,43 @@ fn status_reports_changes_and_a_clean_tree_from_the_command_line() {
 }
 
 #[test]
+fn sparse_shows_adds_and_removes_from_the_command_line() {
+    let base = real_server();
+    let source = scratch("cli-sparse-src");
+    std::fs::create_dir_all(source.join("lib")).unwrap();
+    std::fs::create_dir_all(source.join("extra")).unwrap();
+    std::fs::write(source.join("lib/a.txt"), b"a").unwrap();
+    std::fs::write(source.join("extra/b.txt"), b"b").unwrap();
+    run_at(&base, &["import", source.to_str().unwrap()]);
+
+    let dest = scratch("cli-sparse").join("copy");
+    let dest = dest.to_str().unwrap();
+    run_at(&base, &["clone", dest, "--path", "lib"]);
+
+    assert_eq!(run_at(&base, &["sparse", "--dir", dest]), "lib\n");
+    assert_eq!(
+        run_at(&base, &["sparse", "--dir", dest, "add", "extra"]),
+        "added 1 files\n"
+    );
+    assert_eq!(run_at(&base, &["sparse", "--dir", dest]), "extra\nlib\n");
+    assert_eq!(
+        run_at(&base, &["sparse", "--dir", dest, "remove", "lib"]),
+        "removed 1 files\n"
+    );
+    assert_eq!(run_at(&base, &["sparse", "--dir", dest]), "extra\n");
+}
+
+#[test]
+fn sparse_show_reports_a_full_checkout() {
+    let base = real_server();
+    let source = scratch("cli-sparse-full");
+    std::fs::write(source.join("a.txt"), b"a").unwrap();
+    let dir = source.to_str().unwrap();
+    run_at(&base, &["import", dir]);
+    assert_eq!(run_at(&base, &["sparse", "--dir", dir]), "full checkout\n");
+}
+
+#[test]
 fn clone_rejects_an_invalid_path() {
     let cli = Cli::try_parse_from(["opnscn", "clone", "x", "--path", "../up"]).unwrap();
     assert!(matches!(run(&cli, &mut Vec::new()), Err(Error::Engine(_))));

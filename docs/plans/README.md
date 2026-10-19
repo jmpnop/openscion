@@ -29,3 +29,5 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a test-first sample
   read-only working-copy change report (phase 5).
 - [`openscion-client-watch.md`](openscion-client-watch.md) — `opnscn watch`, the
   filesystem-watcher-backed live status (phase 5).
+- [`openscion-client-sparse.md`](openscion-client-sparse.md) — `opnscn sparse`,
+  first-class sparse-set management: show, add, remove (phase 5).
