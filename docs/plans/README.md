@@ -34,3 +34,5 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a test-first sample
 - [`openscion-daemon-node-store.md`](openscion-daemon-node-store.md) — the
   daemon's bounded, read-through node-local object store and snapshot boot
   (phase 5).
+- [`openscion-daemon-transport.md`](openscion-daemon-transport.md) — the framed
+  object-RPC transport over Unix and TCP, concluding phase 5.

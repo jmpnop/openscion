@@ -9,6 +9,7 @@
 | [Watcher-backed status](openscion-client-watch.md) | Accepted |
 | [Sparse checkout management](openscion-client-sparse.md) | Accepted |
 | [Node-local object store and snapshot boot](openscion-daemon-node-store.md) | Accepted |
+| [Daemon framed transport](openscion-daemon-transport.md) | Accepted |
 
 Specifications define what the system must do before implementation details
 take over. Create one for behavior that changes a public API, crosses module

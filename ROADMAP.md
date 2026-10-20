@@ -80,17 +80,26 @@ This page tracks where things stand.
   upstream fetch or a disk write. Chose the deep read-through module via a POSD
   Design-It-Twice pass; the transport decision is recorded in
   [ADR 0004](docs/adr/0004-daemon-transport.md). Fourth chunk of phase 5.
+- **Daemon framed transport** ([spec](docs/specs/openscion-daemon-transport.md),
+  [plan](docs/plans/openscion-daemon-transport.md),
+  [ADR 0004](docs/adr/0004-daemon-transport.md)): the object RPCs over a byte
+  stream — a length-framed codec (tag, length, body; a found response carries
+  raw object bytes), `serve_connection`/`serve_tcp`/`serve_unix` answering from a
+  `NodeStore`, and a `SocketSource` that is itself an `ObjectSource`, so a node
+  store on one tier reads through a daemon on the tier above over the same wire,
+  on a Unix socket locally or TCP between machines. The codec and server are
+  generic over the stream; only the Unix socket is `#[cfg(unix)]`. Fifth chunk,
+  concluding phase 5 — **the client and daemon phase is complete.**
 
 ## Next
 
-1. **Daemon transport and client (phase 5, concluding):** the framed
-   `openscion-proto` transport ([ADR 0004](docs/adr/0004-daemon-transport.md)) —
-   a length-prefixed stream codec, a Unix-socket listener serving the uniform
-   object RPCs from the `NodeStore`, and a client the daemon uses to reach the
-   tier above (an `ObjectSource` over the socket). With it the daemon runs as a
-   process. The rest of phase 5 is done: the client (`clone` sparse or full,
-   `status`, `watch`, `sparse` add/remove, `commit`, `land`) and the node-local
-   store with snapshot boot.
+1. **Git ingestion** (phase 6): first-parent import of an existing git
+   repository into OpenScion — walking git's first-parent history and
+   translating its commits, trees, and blobs into OpenScion changesets, trees,
+   and content-addressed objects. (The daemon binary — a `main` that binds the
+   socket and boots from a snapshot — and the network tiers, cache, and load
+   shedding remain the later daemon/phase-7 work; the daemon library, client,
+   server, and stores they build on are in place.)
 
 ## Later
 

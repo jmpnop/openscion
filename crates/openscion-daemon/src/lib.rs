@@ -15,10 +15,14 @@
 //!
 //! This crate deliberately does **not** hold the authoritative log, refs, or
 //! derived data, and does not answer mutable queries — those are the server's,
-//! forwarded upstream unchanged by the daemon's RPC layer (a later piece). It
-//! also does not yet speak a wire protocol: the tier above is the in-process
-//! [`ObjectSource`] trait, and the framed transport that implements it over a
-//! socket arrives with the transport sub-chunk (see `docs/adr/0004`).
+//! forwarded upstream unchanged by the daemon's RPC layer (a later piece).
+//!
+//! The [`transport`](serve_connection) carries the object RPCs over a byte
+//! stream — a Unix socket locally, TCP between machines ([ADR
+//! 0004](../../../docs/adr/0004-daemon-transport.md)). [`serve_tcp`] and
+//! [`serve_unix`] serve a [`NodeStore`] to connecting clients, and
+//! [`SocketSource`] is an [`ObjectSource`] that dials a daemon, so a node store
+//! on one tier uses the tier above over the same wire.
 //!
 //! # Example
 //!
@@ -46,6 +50,10 @@ mod error;
 mod store;
 #[cfg(test)]
 mod test_support;
+mod transport;
 
 pub use error::{Error, Result};
 pub use store::{NodeStore, ObjectSource, Warmed};
+#[cfg(unix)]
+pub use transport::serve_unix;
+pub use transport::{SocketSource, serve_connection, serve_tcp};

@@ -28,6 +28,17 @@ pub enum Error {
         #[source]
         source: std::io::Error,
     },
+    /// A message on the wire was malformed, truncated, or not the reply the
+    /// request expected.
+    #[error("protocol error: {0}")]
+    Protocol(String),
+    /// The tier above reported an error for a request, relayed over the wire.
+    #[error("upstream error: {0}")]
+    Upstream(String),
+    /// An I/O failure connecting to, reading from, or writing to a peer over
+    /// the socket.
+    #[error("transport failed: {0}")]
+    Transport(#[source] std::io::Error),
 }
 
 /// The daemon's standard result type.
