@@ -108,14 +108,25 @@ This page tracks where things stand.
   tested against real git repositories built with the `git` CLI (linear history,
   a merge taking only the spine, kinds, submodules, non-UTF-8, provenance).
 
+- **Daemon binary** ([spec](docs/specs/openscion-daemon-binary.md),
+  [plan](docs/plans/openscion-daemon-binary.md)): the `openscion-daemon`
+  process — `DaemonConfig` from flags and `OPENSCION_DAEMON_*` env; a
+  scheme-prefixed `--listen`/`--upstream` endpoint (`tcp:…`/`unix:…`); boot that
+  opens the `NodeStore` on a data directory against an optional tier above,
+  warms it from a snapshot file, and binds the listener; thread-per-connection
+  serving; and a `SIGINT`/`SIGTERM` shutdown that persists the warm set back to
+  the snapshot file. Wiring only over the phase-5 library — no new wire or store
+  behaviour — and still tokio-free (`signal-hook` for synchronous shutdown). The
+  binary is proven end to end by spawning it (bind, a client request over the
+  wire, a signalled shutdown that writes the snapshot). Opens phase 7.
+
 ## Next
 
-1. **Network tiers and the daemon binary** (phase 7): the daemon `main` that
-   binds its socket and boots from a snapshot, then the distributed
-   `MetadataStore` (Postgres/pgrust, Cassandra, or FoundationDB) and the
-   propagation bus, with the tiered cache and load shedding across nodes. The
-   daemon library, client, server, stores, and git ingestion they build on are
-   in place.
+1. **Network tiers** (phase 7): the distributed `MetadataStore`
+   (Postgres/pgrust, Cassandra, or FoundationDB) and the propagation bus, with
+   the regional cache tier, upstream-concurrency bounds, and `Unavailable` load
+   shedding across nodes. The daemon binary, library, client, server, stores,
+   and git ingestion they build on are in place.
 
 ## Later
 

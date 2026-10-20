@@ -74,6 +74,12 @@ ureq = { version = "3", default-features = false, features = ["json"] }
 # recommended native backend is used; defaults stay on so each platform picks
 # its native watcher rather than falling back to polling.
 notify = "8"
+# The `openscion-daemon` binary's synchronous SIGINT/SIGTERM handling for
+# graceful shutdown. The daemon is deliberately tokio-free (blocking,
+# thread-per-connection), the standard library has no signal primitive, and
+# `unsafe` is forbidden workspace-wide, so this maintained, permissively
+# licensed crate is the first-party choice. Unix only, as the daemon's socket.
+signal-hook = "0.3"
 
 # Lints apply to every member that opts in with `[lints] workspace = true`, and
 # to every target of that member. CI runs clippy with `-D warnings`, so anything

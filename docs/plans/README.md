@@ -38,3 +38,6 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a test-first sample
   object-RPC transport over Unix and TCP, concluding phase 5.
 - [`openscion-git-ingestion.md`](openscion-git-ingestion.md) — first-parent
   import of an existing git repository into OpenScion (phase 6).
+- [`openscion-daemon-binary.md`](openscion-daemon-binary.md) — the
+  `openscion-daemon` binary: configured boot, warm from a snapshot file, serve
+  over Unix/TCP, and persist the snapshot on a clean shutdown (phase 7 prelude).

@@ -24,6 +24,13 @@
 //! [`SocketSource`] is an [`ObjectSource`] that dials a daemon, so a node store
 //! on one tier uses the tier above over the same wire.
 //!
+//! The `openscion-daemon` binary wires these together into a process:
+//! [`DaemonConfig`] reads flags and `OPENSCION_DAEMON_*` environment variables,
+//! and [`Daemon::bind`] opens the store on a data directory against an optional
+//! tier above (`--upstream`), warms it from a snapshot file (`--snapshot`), and
+//! binds the [`Endpoint`] (`--listen tcp:…`/`unix:…`); [`Daemon::serve`] then
+//! serves until a shutdown signal and persists the snapshot.
+//!
 //! # Example
 //!
 //! ```
@@ -46,12 +53,19 @@
 //! ```
 
 mod cache;
+mod config;
+mod daemon;
 mod error;
+mod snapshot;
 mod store;
 #[cfg(test)]
 mod test_support;
 mod transport;
 
+pub use config::{
+    DEFAULT_BUDGET_BYTES, DEFAULT_LISTEN, DaemonConfig, Endpoint, EndpointParseError,
+};
+pub use daemon::Daemon;
 pub use error::{Error, Result};
 pub use store::{NodeStore, ObjectSource, Warmed};
 #[cfg(unix)]

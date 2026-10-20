@@ -15,6 +15,17 @@ publish = false
 openscion-core = { workspace = true }
 # The crate-wide error type.
 thiserror = { workspace = true }
+# The `openscion-daemon` binary's flag/env configuration, as the server.
+clap = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+# Synchronous SIGINT/SIGTERM handling for the binary's graceful shutdown; see
+# the workspace entry. Unix only — it backs the signal-driven snapshot write.
+signal-hook = { workspace = true }
+
+[dev-dependencies]
+# The binary integration test builds an object id to request over the wire.
+openscion-core = { workspace = true }
 
 [lints]
 workspace = true
