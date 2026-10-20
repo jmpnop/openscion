@@ -36,3 +36,5 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a test-first sample
   (phase 5).
 - [`openscion-daemon-transport.md`](openscion-daemon-transport.md) — the framed
   object-RPC transport over Unix and TCP, concluding phase 5.
+- [`openscion-git-ingestion.md`](openscion-git-ingestion.md) — first-parent
+  import of an existing git repository into OpenScion (phase 6).

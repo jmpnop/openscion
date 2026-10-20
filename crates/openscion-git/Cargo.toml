@@ -1,0 +1,17 @@
+[package]
+name = "openscion-git"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Import an existing git repository into OpenScion (first-parent history)."
+publish = false
+
+[dependencies]
+openscion-core = { workspace = true }
+thiserror = { workspace = true }
+gix = { version = "0.89", features = ["blob-diff"] }
+
+[lints]
+workspace = true

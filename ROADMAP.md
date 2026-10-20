@@ -91,19 +91,35 @@ This page tracks where things stand.
   generic over the stream; only the Unix socket is `#[cfg(unix)]`. Fifth chunk,
   concluding phase 5 — **the client and daemon phase is complete.**
 
+- **Git ingestion** (phase 6) ([spec](docs/specs/openscion-git-ingestion.md),
+  [plan](docs/plans/openscion-git-ingestion.md),
+  [ADR 0005](docs/adr/0005-git-ingestion-reader.md)): the new `openscion-git`
+  crate's `import_first_parent`, which walks an existing git repository's
+  first-parent spine and writes one OpenScion changeset per spine commit,
+  reproducing each commit's tree (file, executable, symlink) by delta from the
+  previous spine commit, skipping and counting submodule gitlinks, erroring on a
+  non-UTF-8 path, and recording the git commit id, author and committer
+  identities, and timestamps in each changeset's metadata. The reader is
+  gitoxide (`gix`, pure Rust): chosen over `git2`/libgit2, which fails the
+  workspace's cargo-deny license allow-list (GPL-2.0-with-exception) and pulls a
+  C library, over shelling out to `git`, and over hand-rolling an object parser;
+  the choice is recorded in [ADR 0005](docs/adr/0005-git-ingestion-reader.md).
+  The mode mapping and tree-map diff are pure and unit-tested; the driver is
+  tested against real git repositories built with the `git` CLI (linear history,
+  a merge taking only the spine, kinds, submodules, non-UTF-8, provenance).
+
 ## Next
 
-1. **Git ingestion** (phase 6): first-parent import of an existing git
-   repository into OpenScion — walking git's first-parent history and
-   translating its commits, trees, and blobs into OpenScion changesets, trees,
-   and content-addressed objects. (The daemon binary — a `main` that binds the
-   socket and boots from a snapshot — and the network tiers, cache, and load
-   shedding remain the later daemon/phase-7 work; the daemon library, client,
-   server, and stores they build on are in place.)
+1. **Network tiers and the daemon binary** (phase 7): the daemon `main` that
+   binds its socket and boots from a snapshot, then the distributed
+   `MetadataStore` (Postgres/pgrust, Cassandra, or FoundationDB) and the
+   propagation bus, with the tiered cache and load shedding across nodes. The
+   daemon library, client, server, stores, and git ingestion they build on are
+   in place.
 
 ## Later
 
-The `opnscn` client and node daemon, git ingestion, network tiers (where the
+Network tiers (where the
 distributed `MetadataStore` — Postgres/pgrust, Cassandra, or FoundationDB — and
 a propagation bus live), line-level blame and merge, virtual checkouts, read
 access control, and an S3 `ObjectStore`. A
