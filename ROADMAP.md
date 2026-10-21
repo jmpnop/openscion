@@ -128,6 +128,17 @@ This page tracks where things stand.
    shedding across nodes. The daemon binary, library, client, server, stores,
    and git ingestion they build on are in place.
 
+   The backend is decided — shard Postgres
+   ([ADR 0006](docs/adr/0006-distributed-metadata-store.md)) — but the Postgres
+   `MetadataStore` build is **sequenced behind a dependency**: it is proven
+   against a real server inside the ordinary (coverage-counting) test run, by
+   dogfooding a bundled, in-process, pure-Rust Postgres from the `pgpoly`
+   project. `pgpoly`/`pgrust` has no runnable wire server yet, so the required
+   embeddable test server is delegated to the `pgpoly` agent (handoff
+   `task_openscion_pg_testserver_20261021`). Until that lands, the immediate
+   next chunk is a database-free phase-7 piece — upstream-concurrency bounds and
+   `Unavailable` load shedding on the node store, or the regional cache tier.
+
 ## Later
 
 Network tiers (where the
