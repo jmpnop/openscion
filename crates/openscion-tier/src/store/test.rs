@@ -1,4 +1,4 @@
-//! Unit tests for the read-through node store.
+//! Unit tests for the read-through object store.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -8,7 +8,9 @@ use std::sync::{Arc, Barrier, Mutex};
 
 use openscion_core::{ObjectId, ObjectKind, object_id};
 
-use super::{NodeStore, ObjectSource, verify};
+use super::{Store, verify};
+use crate::ObjectSource;
+use crate::backing::ObjectCache;
 use crate::test_support::{blob_id, scratch};
 
 /// An in-memory tier-above that counts how many times it was asked to fetch.
@@ -63,9 +65,9 @@ impl ObjectSource for Source {
     }
 }
 
-/// Opens a node store over `source` with the given budget.
-fn store(name: &str, source: Source, budget: u64) -> NodeStore<Source> {
-    NodeStore::open(&scratch(name), source, budget).unwrap()
+/// Opens a disk-backed store over `source` with the given budget.
+fn store(name: &str, source: Source, budget: u64) -> Store<Source, ObjectCache> {
+    Store::open(&scratch(name), source, budget).unwrap()
 }
 
 #[test]
@@ -245,7 +247,7 @@ fn a_local_get_is_not_blocked_by_an_in_flight_fetch() {
         entered: entered.clone(),
         release: release.clone(),
     };
-    let store = Arc::new(NodeStore::open(&scratch("concurrent"), source, 1 << 20).unwrap());
+    let store = Arc::new(Store::open(&scratch("concurrent"), source, 1 << 20).unwrap());
 
     // Cache `a` (its fetch does not block).
     assert_eq!(&*store.get(a).unwrap(), b"aaa");

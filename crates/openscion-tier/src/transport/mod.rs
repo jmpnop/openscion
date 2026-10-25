@@ -1,4 +1,4 @@
-//! The framed transport: the daemon's object RPCs over a byte stream.
+//! The framed transport: a tier's object RPCs over a byte stream.
 //!
 //! Each message is a one-byte tag, an eight-byte big-endian body length, and
 //! that many body bytes — the length-framing the engine uses to stream objects
@@ -24,7 +24,9 @@ use std::os::unix::net::{UnixListener, UnixStream};
 
 use openscion_core::ObjectId;
 
-use crate::store::{NodeStore, ObjectSource};
+use crate::backing::ObjectBacking;
+use crate::source::ObjectSource;
+use crate::store::Store;
 use crate::{Error, Result};
 
 /// Request: get the object with this id. Body is the 32-byte id.
@@ -52,10 +54,11 @@ const MAX_BODY: u64 = 1 << 32;
 ///
 /// Returns [`Error::Protocol`] on a malformed frame and [`Error::Transport`] on
 /// a read or write failure; a clean close is `Ok(())`.
-pub fn serve_connection<S, Src>(mut stream: S, store: &NodeStore<Src>) -> Result<()>
+pub fn serve_connection<St, S, B>(mut stream: St, store: &Store<S, B>) -> Result<()>
 where
-    S: Read + Write,
-    Src: ObjectSource,
+    St: Read + Write,
+    S: ObjectSource,
+    B: ObjectBacking,
 {
     while let Some((tag, body)) = read_frame(&mut stream)? {
         if tag != TAG_GET {
@@ -80,9 +83,10 @@ where
 /// # Errors
 ///
 /// Returns [`Error::Transport`] when accepting a connection fails.
-pub fn serve_tcp<Src>(listener: &TcpListener, store: &Arc<NodeStore<Src>>) -> Result<()>
+pub fn serve_tcp<S, B>(listener: &TcpListener, store: &Arc<Store<S, B>>) -> Result<()>
 where
-    Src: ObjectSource + 'static,
+    S: ObjectSource + 'static,
+    B: ObjectBacking + 'static,
 {
     for stream in listener.incoming() {
         let stream = stream.map_err(Error::Transport)?;
@@ -101,9 +105,10 @@ where
 ///
 /// As [`serve_tcp`].
 #[cfg(unix)]
-pub fn serve_unix<Src>(listener: &UnixListener, store: &Arc<NodeStore<Src>>) -> Result<()>
+pub fn serve_unix<S, B>(listener: &UnixListener, store: &Arc<Store<S, B>>) -> Result<()>
 where
-    Src: ObjectSource + 'static,
+    S: ObjectSource + 'static,
+    B: ObjectBacking + 'static,
 {
     for stream in listener.incoming() {
         let stream = stream.map_err(Error::Transport)?;
@@ -115,10 +120,10 @@ where
     Ok(())
 }
 
-/// A client for a daemon's object RPCs, reachable over a Unix socket or TCP.
+/// A client for a tier's object RPCs, reachable over a Unix socket or TCP.
 ///
-/// It implements [`ObjectSource`], so a node store on one tier can use a daemon
-/// on the tier above as its upstream — tiers compose over the same wire. Each
+/// It implements [`ObjectSource`], so a store on one tier can use a server on
+/// the tier above as its upstream — tiers compose over the same wire. Each
 /// fetch opens a fresh connection.
 #[derive(Debug, Clone)]
 pub struct SocketSource {
@@ -134,7 +139,7 @@ enum Endpoint {
 }
 
 impl SocketSource {
-    /// A client that dials the daemon listening at `addr` over TCP.
+    /// A client that dials the server listening at `addr` over TCP.
     #[must_use]
     pub fn tcp(addr: SocketAddr) -> Self {
         Self {
@@ -142,7 +147,7 @@ impl SocketSource {
         }
     }
 
-    /// A client that dials the daemon listening on the Unix socket at `path`.
+    /// A client that dials the server listening on the Unix socket at `path`.
     #[cfg(unix)]
     #[must_use]
     pub fn unix(path: impl Into<PathBuf>) -> Self {
@@ -186,7 +191,7 @@ impl ObjectSource for SocketSource {
     }
 }
 
-/// A connection to a daemon, over whichever transport the endpoint named.
+/// A connection to a server, over whichever transport the endpoint named.
 enum Conn {
     Tcp(TcpStream),
     #[cfg(unix)]

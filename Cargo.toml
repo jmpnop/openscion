@@ -41,6 +41,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The engine, so the server and CLI crates name the same types the library does.
 openscion-core = { path = "crates/openscion-core", version = "0.2.1" }
+# The shared tier layer: the `ObjectSource`/`ObjectBacking` ports, the
+# read-through object store, the upstream-concurrency bound, and the framed
+# transport, used by the daemon and (later) the regional cache and the server's
+# framed endpoint. Unpublished server-side infrastructure, so it needs no
+# `version`.
+openscion-tier = { path = "crates/openscion-tier" }
 # The engine's hash: every object, tree, and changeset id is BLAKE3 of its
 # canonical encoding (`docs/specs/openscion-data-model.md#object-identifiers`).
 # The CLI hashes working-copy files with it through the engine.

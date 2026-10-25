@@ -6,7 +6,7 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use openscion_core::ObjectId;
 
-use crate::store::ObjectSource;
+use crate::ObjectSource;
 use crate::test_support::MemorySource;
 use crate::{Error, Result};
 

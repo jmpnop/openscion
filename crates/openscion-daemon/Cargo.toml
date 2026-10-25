@@ -10,11 +10,13 @@ description = "The OpenScion node daemon: a per-machine, bounded, read-through o
 publish = false
 
 [dependencies]
-# The engine, for object ids and BLAKE3 hashing (object_id, ObjectId,
-# ObjectKind) used to verify objects fetched from the tier above.
+# The shared tier layer: the object ports, the read-through store, the
+# upstream-concurrency bound, and the framed transport. The daemon assembles
+# these into a per-machine process; it re-exports the surface it used to define.
+openscion-tier = { workspace = true }
+# The engine, for object ids (ObjectId) named in the daemon's snapshot codec and
+# upstream wiring.
 openscion-core = { workspace = true }
-# The crate-wide error type.
-thiserror = { workspace = true }
 # The `openscion-daemon` binary's flag/env configuration, as the server.
 clap = { workspace = true }
 

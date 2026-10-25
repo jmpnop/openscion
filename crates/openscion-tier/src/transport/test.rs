@@ -6,16 +6,18 @@ use std::net::TcpListener;
 use std::sync::Arc;
 
 use super::{SocketSource, read_frame, serve_tcp, write_frame};
-use crate::store::{NodeStore, ObjectSource};
+use crate::ObjectSource;
+use crate::backing::ObjectCache;
+use crate::store::Store;
 use crate::test_support::{MemorySource, blob_id, scratch};
 
-/// A node store over `source`, rooted at a fresh cache directory.
-fn store(name: &str, source: MemorySource) -> Arc<NodeStore<MemorySource>> {
-    Arc::new(NodeStore::open(&scratch(name), source, 1 << 20).unwrap())
+/// A disk-backed store over `source`, rooted at a fresh cache directory.
+fn store(name: &str, source: MemorySource) -> Arc<Store<MemorySource, ObjectCache>> {
+    Arc::new(Store::open(&scratch(name), source, 1 << 20).unwrap())
 }
 
 /// Binds a TCP server for `store` on a loopback port and returns its address.
-fn serve(store: Arc<NodeStore<MemorySource>>) -> std::net::SocketAddr {
+fn serve(store: Arc<Store<MemorySource, ObjectCache>>) -> std::net::SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     std::thread::spawn(move || {
@@ -76,13 +78,13 @@ fn serves_found_and_absent_objects_over_tcp() {
 }
 
 #[test]
-fn a_node_store_can_front_a_daemon_over_the_wire() {
-    // The tier above is a daemon; a near store reads through to it over TCP.
+fn a_store_can_front_a_server_over_the_wire() {
+    // The tier above is a server; a near store reads through to it over TCP.
     let far = MemorySource::new();
     let id = far.add(b"shared object");
     let addr = serve(store("far", far));
 
-    let near = NodeStore::open(&scratch("near"), SocketSource::tcp(addr), 1 << 20).unwrap();
+    let near = Store::open(&scratch("near"), SocketSource::tcp(addr), 1 << 20).unwrap();
     assert_eq!(&*near.get(id).unwrap(), b"shared object");
     // Cached now: it serves locally and reports the id in its snapshot.
     assert_eq!(near.snapshot(), vec![id]);
@@ -92,12 +94,38 @@ fn a_node_store_can_front_a_daemon_over_the_wire() {
 fn an_upstream_error_is_relayed_to_the_client() {
     let source = MemorySource::new();
     // The tier above serves bytes that do not match the id, so the store's get
-    // fails with a corruption error, which the daemon relays over the wire.
+    // fails with a corruption error, which the server relays over the wire.
     let id = source.add_corrupt(b"claimed", b"tampered");
     let addr = serve(store("err", source));
 
     let client = SocketSource::tcp(addr);
     assert!(matches!(client.fetch(id), Err(crate::Error::Upstream(_))));
+}
+
+#[test]
+fn a_shed_is_relayed_as_unavailable_not_a_generic_error() {
+    use crate::BoundedSource;
+
+    // The tier above holds the object, but the store's upstream is bounded at
+    // zero, so a cold miss sheds before reaching it.
+    let upstream = MemorySource::new();
+    let id = upstream.add(b"would be served");
+    let node =
+        Arc::new(Store::open(&scratch("shed"), BoundedSource::new(upstream, 0), 1 << 20).unwrap());
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        let _ = serve_tcp(&listener, &node);
+    });
+
+    // The shed crosses the wire as Unavailable, distinct from a generic upstream
+    // error, so a lower tier can tell a shed from a failure.
+    let client = SocketSource::tcp(addr);
+    assert!(matches!(
+        client.fetch(id),
+        Err(crate::Error::Unavailable(_))
+    ));
 }
 
 #[test]
@@ -152,33 +180,6 @@ fn the_peer_closing_before_replying_is_a_protocol_error() {
     assert!(matches!(
         client.fetch(blob_id(b"x")),
         Err(crate::Error::Protocol(_))
-    ));
-}
-
-#[test]
-fn a_shed_is_relayed_as_unavailable_not_a_generic_error() {
-    use crate::BoundedSource;
-
-    // The tier above holds the object, but the node store's upstream is bounded
-    // at zero, so a cold miss sheds before reaching it.
-    let upstream = MemorySource::new();
-    let id = upstream.add(b"would be served");
-    let node = Arc::new(
-        NodeStore::open(&scratch("shed"), BoundedSource::new(upstream, 0), 1 << 20).unwrap(),
-    );
-
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let addr = listener.local_addr().unwrap();
-    std::thread::spawn(move || {
-        let _ = serve_tcp(&listener, &node);
-    });
-
-    // The shed crosses the wire as Unavailable, distinct from a generic upstream
-    // error, so a lower tier can tell a shed from a failure.
-    let client = SocketSource::tcp(addr);
-    assert!(matches!(
-        client.fetch(id),
-        Err(crate::Error::Unavailable(_))
     ));
 }
 

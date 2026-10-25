@@ -58,25 +58,26 @@
 //! # Ok::<(), openscion_daemon::Error>(())
 //! ```
 
-mod bound;
-mod cache;
 mod config;
 mod daemon;
-mod error;
 mod snapshot;
-mod store;
 #[cfg(test)]
 mod test_support;
-mod transport;
 
-pub use bound::BoundedSource;
+#[cfg(unix)]
+pub use openscion_tier::serve_unix;
+pub use openscion_tier::{
+    BoundedSource, Error, ObjectSource, Result, SocketSource, Warmed, serve_connection, serve_tcp,
+};
+
 pub use config::{
     DEFAULT_BUDGET_BYTES, DEFAULT_LISTEN, DEFAULT_UPSTREAM_CONCURRENCY, DaemonConfig, Endpoint,
     EndpointParseError,
 };
 pub use daemon::Daemon;
-pub use error::{Error, Result};
-pub use store::{NodeStore, ObjectSource, Warmed};
-#[cfg(unix)]
-pub use transport::serve_unix;
-pub use transport::{SocketSource, serve_connection, serve_tcp};
+
+/// The daemon's node-local object store: the shared read-through
+/// [`Store`](openscion_tier::Store) over the on-disk
+/// [`ObjectCache`](openscion_tier::ObjectCache), re-exported under the daemon's
+/// own name.
+pub type NodeStore<S> = openscion_tier::Store<S, openscion_tier::ObjectCache>;

@@ -1,0 +1,21 @@
+[package]
+name = "openscion-tier"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared OpenScion tier layer: object ports, read-through store, upstream bound, and framed transport."
+# Not published to crates.io; it ships as server-side infrastructure shared by
+# the daemon, the regional cache, and the server's framed endpoint.
+publish = false
+
+[dependencies]
+# The engine, for object ids and BLAKE3 hashing (object_id, ObjectId,
+# ObjectKind) used to verify objects fetched from the tier above.
+openscion-core = { workspace = true }
+# The crate-wide error type.
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

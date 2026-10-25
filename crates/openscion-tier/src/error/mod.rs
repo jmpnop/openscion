@@ -1,10 +1,10 @@
-//! Crate-wide error and result types for the daemon.
+//! Crate-wide error and result types for the tier layer.
 
 use std::path::PathBuf;
 
 use openscion_core::ObjectId;
 
-/// Errors returned by the node daemon.
+/// Errors returned by the tier layer.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
@@ -46,5 +46,5 @@ pub enum Error {
     Transport(#[source] std::io::Error),
 }
 
-/// The daemon's standard result type.
+/// The tier layer's standard result type.
 pub type Result<T> = std::result::Result<T, Error>;

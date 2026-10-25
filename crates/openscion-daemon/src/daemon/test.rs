@@ -9,10 +9,8 @@ use openscion_core::ObjectId;
 
 use super::{Daemon, Upstream};
 use crate::config::{DaemonConfig, Endpoint};
-use crate::store::NodeStore;
 use crate::test_support::{MemorySource, scratch};
-use crate::transport::serve_tcp;
-use crate::{ObjectSource, snapshot};
+use crate::{NodeStore, ObjectSource, serve_tcp, snapshot};
 
 /// Stands up an in-process daemon over TCP serving `objects` from memory, and
 /// returns its address and the ids it holds.

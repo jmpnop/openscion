@@ -134,6 +134,19 @@ This page tracks where things stand.
   `OPENSCION_DAEMON_UPSTREAM_CONCURRENCY` (default 32), wired in `Daemon::bind`;
   the node store, cache, and snapshot are unchanged, and no dependency was added.
 
+- **Shared `openscion-tier` crate** (phase 7 enabler)
+  ([spec](docs/specs/openscion-tier.md), [plan](docs/plans/openscion-tier.md)):
+  the tier machinery every tier shares — the `ObjectSource` and new
+  `ObjectBacking` ports, the read-through object `Store` (generalized over its
+  byte backing), the on-disk `ObjectCache`, the `BoundedSource` upstream bound,
+  and the framed transport — is extracted out of `openscion-daemon` into a new
+  `openscion-tier` crate. The daemon consumes it and re-exports its prior
+  surface (`NodeStore` is now `Store<S, ObjectCache>`); behaviour and public API
+  are unchanged, and no third-party dependency was added. This unblocks the
+  regional cache (an in-memory `ObjectBacking`) and the server's framed endpoint,
+  which reuse the crate rather than duplicating it
+  ([ADR 0004](docs/adr/0004-daemon-transport.md)).
+
 ## Next
 
 1. **Network tiers** (phase 7): the distributed `MetadataStore`

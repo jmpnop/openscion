@@ -1,10 +1,10 @@
-//! The node store's result type and its least-recently-used budget index.
+//! The read-through store's result type and its least-recently-used budget index.
 
 use std::collections::{BTreeMap, HashMap};
 
 use openscion_core::ObjectId;
 
-/// The outcome of a [`warm`](super::NodeStore::warm): how many ids were fetched
+/// The outcome of a [`warm`](super::Store::warm): how many ids were fetched
 /// into the store, and how many no tier above held.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]

@@ -47,14 +47,6 @@ impl MemorySource {
         self.objects.lock().unwrap().insert(id, Arc::from(bytes));
         id
     }
-
-    /// Serves `served` under the id that `claimed` hashes to, so the bytes do
-    /// not match the id — a corrupt tier above.
-    pub(crate) fn add_corrupt(&self, claimed: &[u8], served: &[u8]) -> ObjectId {
-        let id = blob_id(claimed);
-        self.objects.lock().unwrap().insert(id, Arc::from(served));
-        id
-    }
 }
 
 impl ObjectSource for MemorySource {

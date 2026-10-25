@@ -1,16 +1,17 @@
-//! A bounded cache's on-disk backing: object bytes keyed by id.
+//! A tier's local byte store: object bytes keyed by id, behind a port so one
+//! read-through [`Store`](crate::Store) serves both an on-disk daemon and an
+//! in-memory cache.
 //!
-//! Objects live at `<root>/<aa>/<rest>`, the two-level fanout git uses for
-//! loose objects, and are written atomically — to a temp file, flushed with
-//! `fsync`, then renamed into place — so a reader never sees a partial object
-//! and a crash leaves at most an orphaned temp file, which [`ObjectCache::open`]
-//! sweeps.
+//! [`ObjectBacking`] is the port. [`ObjectCache`] is the on-disk
+//! implementation: objects live at `<root>/<aa>/<rest>`, the two-level fanout
+//! git uses for loose objects, written atomically — to a temp file, flushed
+//! with `fsync`, then renamed into place — so a reader never sees a partial
+//! object and a crash leaves at most an orphaned temp file, which
+//! [`ObjectCache::open`] sweeps.
 //!
-//! Unlike the engine's append-only [`ObjectStore`], this backing supports
-//! [`remove`](ObjectCache::remove), so the node store can evict. It is keyed
-//! purely by id: it stores and serves bytes and never needs an object's kind.
-//!
-//! [`ObjectStore`]: openscion_core::ObjectStore
+//! Unlike the engine's append-only `ObjectStore`, a backing supports
+//! [`remove`](ObjectBacking::remove), so a store can evict. It is keyed purely
+//! by id: it stores and serves bytes and never needs an object's kind.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -23,22 +24,63 @@ use openscion_core::ObjectId;
 
 use crate::{Error, Result};
 
+/// A tier's local store of object bytes keyed by id, with removal for eviction.
+///
+/// Implementations are content-addressed byte stores: they neither verify nor
+/// interpret the bytes, only hold and return them. A store caches verified
+/// objects here and evicts by removing them.
+pub trait ObjectBacking: Send + Sync {
+    /// Whether the backing holds `id`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] when the backing cannot be queried.
+    fn contains(&self, id: ObjectId) -> Result<bool>;
+
+    /// The bytes of `id`, or `None` when the backing does not hold it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] when the backing cannot be read.
+    fn read(&self, id: ObjectId) -> Result<Option<Arc<[u8]>>>;
+
+    /// Writes `payload` under `id` if it is not already stored.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] when the backing cannot be written.
+    fn write(&self, id: ObjectId, payload: &[u8]) -> Result<()>;
+
+    /// Removes `id`. Removing an id the backing does not hold is a success, so a
+    /// racing double-eviction is harmless.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] when the removal fails for a reason other than the
+    /// id being absent.
+    fn remove(&self, id: ObjectId) -> Result<()>;
+}
+
 /// The prefix every temp file name starts with.
 const TEMP_PREFIX: &str = ".tmp-";
 
 /// Makes temp file names unique within a process.
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
-/// An on-disk store of object bytes keyed by id, with removal.
+/// An on-disk [`ObjectBacking`]: object bytes keyed by id, with removal.
 #[derive(Debug)]
-pub(crate) struct ObjectCache {
+pub struct ObjectCache {
     root: PathBuf,
 }
 
 impl ObjectCache {
     /// Opens the cache rooted at `root`, creating the directory if absent and
     /// removing any temp files a previous crash left behind.
-    pub(crate) fn open(root: impl Into<PathBuf>) -> Result<Self> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] when `root` cannot be created or read.
+    pub fn open(root: impl Into<PathBuf>) -> Result<Self> {
         let root = root.into();
         fs::create_dir_all(&root).map_err(io(&root))?;
         let cache = Self { root };
@@ -53,60 +95,6 @@ impl ObjectCache {
         let dir = self.root.join(prefix);
         let path = dir.join(rest);
         (dir, path)
-    }
-
-    /// Whether the cache holds `id`.
-    pub(crate) fn contains(&self, id: ObjectId) -> Result<bool> {
-        let (_, path) = self.locate(id);
-        path.try_exists().map_err(io(&path))
-    }
-
-    /// The bytes of `id`, or `None` when the cache does not hold it.
-    pub(crate) fn read(&self, id: ObjectId) -> Result<Option<Arc<[u8]>>> {
-        let (_, path) = self.locate(id);
-        match fs::read(&path) {
-            Ok(bytes) => Ok(Some(Arc::from(bytes))),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(Error::Io {
-                path,
-                source: error,
-            }),
-        }
-    }
-
-    /// Writes `payload` under `id`, atomically, if it is not already stored.
-    pub(crate) fn write(&self, id: ObjectId, payload: &[u8]) -> Result<()> {
-        if self.contains(id)? {
-            return Ok(());
-        }
-        let (dir, path) = self.locate(id);
-        fs::create_dir_all(&dir).map_err(io(&dir))?;
-        let temp = dir.join(temp_name());
-        if let Err(error) = write_temp(&temp, &path, payload) {
-            // A partial or un-renamed temp file never becomes an object; drop it.
-            let _ = fs::remove_file(&temp);
-            return Err(error);
-        }
-        // Make the new directory entry durable; a failure here is not fatal, as
-        // the object is already renamed into place and readable.
-        if let Ok(handle) = File::open(&dir) {
-            let _ = handle.sync_all();
-        }
-        Ok(())
-    }
-
-    /// Removes `id` from the cache. Removing an id the cache does not hold is a
-    /// success, so a racing double-eviction is harmless.
-    pub(crate) fn remove(&self, id: ObjectId) -> Result<()> {
-        let (_, path) = self.locate(id);
-        match fs::remove_file(&path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(Error::Io {
-                path,
-                source: error,
-            }),
-        }
     }
 
     /// Removes temp files left by an interrupted write.
@@ -130,6 +118,57 @@ impl ObjectCache {
             }
         }
         Ok(())
+    }
+}
+
+impl ObjectBacking for ObjectCache {
+    fn contains(&self, id: ObjectId) -> Result<bool> {
+        let (_, path) = self.locate(id);
+        path.try_exists().map_err(io(&path))
+    }
+
+    fn read(&self, id: ObjectId) -> Result<Option<Arc<[u8]>>> {
+        let (_, path) = self.locate(id);
+        match fs::read(&path) {
+            Ok(bytes) => Ok(Some(Arc::from(bytes))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(Error::Io {
+                path,
+                source: error,
+            }),
+        }
+    }
+
+    fn write(&self, id: ObjectId, payload: &[u8]) -> Result<()> {
+        if self.contains(id)? {
+            return Ok(());
+        }
+        let (dir, path) = self.locate(id);
+        fs::create_dir_all(&dir).map_err(io(&dir))?;
+        let temp = dir.join(temp_name());
+        if let Err(error) = write_temp(&temp, &path, payload) {
+            // A partial or un-renamed temp file never becomes an object; drop it.
+            let _ = fs::remove_file(&temp);
+            return Err(error);
+        }
+        // Make the new directory entry durable; a failure here is not fatal, as
+        // the object is already renamed into place and readable.
+        if let Ok(handle) = File::open(&dir) {
+            let _ = handle.sync_all();
+        }
+        Ok(())
+    }
+
+    fn remove(&self, id: ObjectId) -> Result<()> {
+        let (_, path) = self.locate(id);
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(Error::Io {
+                path,
+                source: error,
+            }),
+        }
     }
 }
 

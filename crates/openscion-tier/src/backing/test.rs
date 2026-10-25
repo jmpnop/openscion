@@ -2,7 +2,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use super::ObjectCache;
+use super::{ObjectBacking, ObjectCache};
 use crate::test_support::{blob_id, scratch};
 
 #[test]

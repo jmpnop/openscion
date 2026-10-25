@@ -44,3 +44,6 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a test-first sample
 - [`openscion-daemon-upstream-bound.md`](openscion-daemon-upstream-bound.md) —
   the daemon's upstream-concurrency bound and `Unavailable` load shedding, with
   the shed carried across the wire so a lower tier re-sheds (phase 7).
+- [`openscion-tier.md`](openscion-tier.md) — extract the shared tier machinery
+  (ports, read-through store, bound, transport) into `openscion-tier` so the
+  cache and the server's framed endpoint reuse it (phase 7 enabler).
