@@ -35,6 +35,11 @@ pub enum Error {
     /// The tier above reported an error for a request, relayed over the wire.
     #[error("upstream error: {0}")]
     Upstream(String),
+    /// This tier shed the request because its upstream-fetch concurrency bound
+    /// was reached — it is declining work, not reporting a failure of the tier
+    /// above. A lower tier that receives it sheds in turn rather than retrying.
+    #[error("unavailable: {0}")]
+    Unavailable(String),
     /// An I/O failure connecting to, reading from, or writing to a peer over
     /// the socket.
     #[error("transport failed: {0}")]

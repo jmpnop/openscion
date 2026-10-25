@@ -23,6 +23,13 @@ pub const DEFAULT_LISTEN: &str = "tcp:127.0.0.1:7979";
 /// The resident byte budget when none is configured: one gibibyte.
 pub const DEFAULT_BUDGET_BYTES: u64 = 1 << 30;
 
+/// The maximum concurrent upstream fetches when none is configured.
+///
+/// A conservative bound, well under how many connections the daemon serves at
+/// once, so a burst of misses protects the tier above rather than mirroring the
+/// node's own load onto it; past it, fetches shed with `Unavailable`.
+pub const DEFAULT_UPSTREAM_CONCURRENCY: usize = 32;
+
 /// How the node daemon is configured.
 #[derive(Debug, Clone, PartialEq, Eq, Parser)]
 #[command(
@@ -48,6 +55,15 @@ pub struct DaemonConfig {
     #[arg(long, env = "OPENSCION_DAEMON_UPSTREAM")]
     pub upstream: Option<Endpoint>,
 
+    /// Maximum concurrent fetches to the tier above; past it, fetches shed with
+    /// `Unavailable` rather than queueing.
+    #[arg(
+        long,
+        env = "OPENSCION_DAEMON_UPSTREAM_CONCURRENCY",
+        default_value_t = DEFAULT_UPSTREAM_CONCURRENCY
+    )]
+    pub upstream_concurrency: usize,
+
     /// Warm-set file to boot from and persist to on a clean shutdown.
     #[arg(long, env = "OPENSCION_DAEMON_SNAPSHOT")]
     pub snapshot: Option<PathBuf>,
@@ -72,6 +88,7 @@ impl DaemonConfig {
             data_dir: data_dir.into(),
             budget_bytes: DEFAULT_BUDGET_BYTES,
             upstream: None,
+            upstream_concurrency: DEFAULT_UPSTREAM_CONCURRENCY,
             snapshot: None,
         }
     }
@@ -87,6 +104,13 @@ impl DaemonConfig {
     #[must_use]
     pub fn with_upstream(mut self, upstream: Endpoint) -> Self {
         self.upstream = Some(upstream);
+        self
+    }
+
+    /// Caps concurrent fetches to the tier above at `limit`.
+    #[must_use]
+    pub fn with_upstream_concurrency(mut self, limit: usize) -> Self {
+        self.upstream_concurrency = limit;
         self
     }
 

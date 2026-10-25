@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use super::{DEFAULT_BUDGET_BYTES, DaemonConfig, Endpoint};
+use super::{DEFAULT_BUDGET_BYTES, DEFAULT_UPSTREAM_CONCURRENCY, DaemonConfig, Endpoint};
 
 #[test]
 fn a_tcp_endpoint_parses_and_displays() {
@@ -55,6 +55,7 @@ fn only_a_data_dir_takes_every_default() {
     assert_eq!(config.data_dir, PathBuf::from("/data"));
     assert_eq!(config.budget_bytes, DEFAULT_BUDGET_BYTES);
     assert!(config.upstream.is_none());
+    assert_eq!(config.upstream_concurrency, DEFAULT_UPSTREAM_CONCURRENCY);
     assert!(config.snapshot.is_none());
 }
 
@@ -70,6 +71,8 @@ fn every_flag_is_read() {
         "4096",
         "--upstream",
         "tcp:10.0.0.1:7979",
+        "--upstream-concurrency",
+        "8",
         "--snapshot",
         "/data/warm.ids",
     ])
@@ -80,6 +83,7 @@ fn every_flag_is_read() {
         config.upstream,
         Some(Endpoint::Tcp(([10, 0, 0, 1], 7979).into()))
     );
+    assert_eq!(config.upstream_concurrency, 8);
     assert_eq!(config.snapshot, Some(PathBuf::from("/data/warm.ids")));
 }
 
@@ -107,11 +111,13 @@ fn the_builders_set_each_field() {
     let config = DaemonConfig::new("/data")
         .with_listen(Endpoint::Tcp(([127, 0, 0, 1], 0).into()))
         .with_upstream("tcp:10.0.0.1:7979".parse().unwrap())
+        .with_upstream_concurrency(8)
         .with_snapshot("/data/warm.ids");
     assert_eq!(config.listen, Endpoint::Tcp(([127, 0, 0, 1], 0).into()));
     assert_eq!(
         config.upstream,
         Some(Endpoint::Tcp(([10, 0, 0, 1], 7979).into()))
     );
+    assert_eq!(config.upstream_concurrency, 8);
     assert_eq!(config.snapshot, Some(PathBuf::from("/data/warm.ids")));
 }

@@ -17,6 +17,12 @@
 //! derived data, and does not answer mutable queries — those are the server's,
 //! forwarded upstream unchanged by the daemon's RPC layer (a later piece).
 //!
+//! Tiering is strict and bounded: the store's fetches to the tier above pass
+//! through a [`BoundedSource`], which caps how many run at once and sheds the
+//! overflow with [`Error::Unavailable`] rather than queueing. The shed crosses
+//! the wire as a distinct response, so a daemon reading through a saturated
+//! daemon receives `Unavailable` and re-sheds instead of stampeding it.
+//!
 //! The [`transport`](serve_connection) carries the object RPCs over a byte
 //! stream — a Unix socket locally, TCP between machines ([ADR
 //! 0004](../../../docs/adr/0004-daemon-transport.md)). [`serve_tcp`] and
@@ -52,6 +58,7 @@
 //! # Ok::<(), openscion_daemon::Error>(())
 //! ```
 
+mod bound;
 mod cache;
 mod config;
 mod daemon;
@@ -62,8 +69,10 @@ mod store;
 mod test_support;
 mod transport;
 
+pub use bound::BoundedSource;
 pub use config::{
-    DEFAULT_BUDGET_BYTES, DEFAULT_LISTEN, DaemonConfig, Endpoint, EndpointParseError,
+    DEFAULT_BUDGET_BYTES, DEFAULT_LISTEN, DEFAULT_UPSTREAM_CONCURRENCY, DaemonConfig, Endpoint,
+    EndpointParseError,
 };
 pub use daemon::Daemon;
 pub use error::{Error, Result};

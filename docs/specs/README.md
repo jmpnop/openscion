@@ -12,6 +12,7 @@
 | [Daemon framed transport](openscion-daemon-transport.md) | Accepted |
 | [Git ingestion (first-parent import)](openscion-git-ingestion.md) | Accepted |
 | [Daemon binary](openscion-daemon-binary.md) | Accepted |
+| [Daemon upstream-concurrency bound and load shedding](openscion-daemon-upstream-bound.md) | Accepted |
 
 Specifications define what the system must do before implementation details
 take over. Create one for behavior that changes a public API, crosses module

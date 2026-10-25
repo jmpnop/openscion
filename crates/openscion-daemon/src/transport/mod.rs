@@ -35,6 +35,10 @@ const TAG_FOUND: u8 = 2;
 const TAG_ABSENT: u8 = 3;
 /// Response: the request failed. Body is a UTF-8 message.
 const TAG_ERROR: u8 = 4;
+/// Response: this tier shed the request (its upstream-fetch bound was reached).
+/// Body is a UTF-8 reason. Distinct from [`TAG_ERROR`] so a lower tier can tell
+/// a shed from a failure and back off instead of retrying.
+const TAG_UNAVAILABLE: u8 = 5;
 
 /// The largest body the codec will read, to bound the memory a single frame can
 /// demand from a peer. Objects beyond this are chunked by the data model.
@@ -61,6 +65,9 @@ where
         match store.get(id) {
             Ok(bytes) => write_frame(&mut stream, TAG_FOUND, &bytes)?,
             Err(Error::NotFound(_)) => write_frame(&mut stream, TAG_ABSENT, &[])?,
+            Err(Error::Unavailable(reason)) => {
+                write_frame(&mut stream, TAG_UNAVAILABLE, reason.as_bytes())?;
+            }
             Err(error) => write_frame(&mut stream, TAG_ERROR, error.to_string().as_bytes())?,
         }
     }
@@ -165,6 +172,9 @@ impl ObjectSource for SocketSource {
         match read_frame(&mut conn)? {
             Some((TAG_FOUND, body)) => Ok(Some(Arc::from(body))),
             Some((TAG_ABSENT, _)) => Ok(None),
+            Some((TAG_UNAVAILABLE, reason)) => Err(Error::Unavailable(
+                String::from_utf8_lossy(&reason).into_owned(),
+            )),
             Some((TAG_ERROR, message)) => Err(Error::Upstream(
                 String::from_utf8_lossy(&message).into_owned(),
             )),

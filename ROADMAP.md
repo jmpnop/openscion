@@ -120,6 +120,20 @@ This page tracks where things stand.
   binary is proven end to end by spawning it (bind, a client request over the
   wire, a signalled shutdown that writes the snapshot). Opens phase 7.
 
+- **Upstream-concurrency bound and `Unavailable` load shedding** (phase 7)
+  ([spec](docs/specs/openscion-daemon-upstream-bound.md),
+  [plan](docs/plans/openscion-daemon-upstream-bound.md)): the first network-tiers
+  chunk makes the daemon's tiering bounded. A `BoundedSource` decorator over the
+  node store's upstream caps how many fetches to the tier above run at once with
+  a lock-free slot count, and sheds the overflow immediately with a new
+  `Error::Unavailable` instead of queueing. The shed crosses the framed transport
+  as a distinct `TAG_UNAVAILABLE` response, so a daemon reading through a
+  saturated daemon receives `Unavailable` — not a generic upstream error — and,
+  because its own upstream is itself bounded, re-sheds to its caller rather than
+  stampeding the tier above. The bound is `--upstream-concurrency` /
+  `OPENSCION_DAEMON_UPSTREAM_CONCURRENCY` (default 32), wired in `Daemon::bind`;
+  the node store, cache, and snapshot are unchanged, and no dependency was added.
+
 ## Next
 
 1. **Network tiers** (phase 7): the distributed `MetadataStore`

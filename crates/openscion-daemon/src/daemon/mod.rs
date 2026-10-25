@@ -16,6 +16,7 @@ use std::os::unix::net::UnixListener;
 
 use openscion_core::ObjectId;
 
+use crate::bound::BoundedSource;
 use crate::config::{DaemonConfig, Endpoint};
 use crate::snapshot;
 use crate::store::{NodeStore, ObjectSource, Warmed};
@@ -69,7 +70,7 @@ enum Listener {
 /// A bound, warmed node daemon ready to [`serve`](Daemon::serve).
 #[derive(Debug)]
 pub struct Daemon {
-    store: Arc<NodeStore<Upstream>>,
+    store: Arc<NodeStore<BoundedSource<Upstream>>>,
     listener: Listener,
     listening: String,
     snapshot_path: Option<PathBuf>,
@@ -88,7 +89,13 @@ impl Daemon {
     /// upstream error ([`Error::Transport`]/[`Error::Upstream`]) when warming
     /// cannot reach the tier above.
     pub fn bind(config: &DaemonConfig) -> Result<Self> {
-        let upstream = Upstream::from_endpoint(config.upstream.as_ref());
+        // Bound the fetches to the tier above: past the limit they shed with
+        // `Unavailable` rather than queueing, so a burst of misses cannot
+        // stampede the tier above.
+        let upstream = BoundedSource::new(
+            Upstream::from_endpoint(config.upstream.as_ref()),
+            config.upstream_concurrency,
+        );
         let store = Arc::new(NodeStore::open(
             &config.data_dir,
             upstream,

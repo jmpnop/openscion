@@ -155,6 +155,33 @@ fn the_peer_closing_before_replying_is_a_protocol_error() {
     ));
 }
 
+#[test]
+fn a_shed_is_relayed_as_unavailable_not_a_generic_error() {
+    use crate::BoundedSource;
+
+    // The tier above holds the object, but the node store's upstream is bounded
+    // at zero, so a cold miss sheds before reaching it.
+    let upstream = MemorySource::new();
+    let id = upstream.add(b"would be served");
+    let node = Arc::new(
+        NodeStore::open(&scratch("shed"), BoundedSource::new(upstream, 0), 1 << 20).unwrap(),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        let _ = serve_tcp(&listener, &node);
+    });
+
+    // The shed crosses the wire as Unavailable, distinct from a generic upstream
+    // error, so a lower tier can tell a shed from a failure.
+    let client = SocketSource::tcp(addr);
+    assert!(matches!(
+        client.fetch(id),
+        Err(crate::Error::Unavailable(_))
+    ));
+}
+
 #[cfg(unix)]
 #[test]
 fn serves_objects_over_a_unix_socket() {

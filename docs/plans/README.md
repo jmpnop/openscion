@@ -41,3 +41,6 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a test-first sample
 - [`openscion-daemon-binary.md`](openscion-daemon-binary.md) — the
   `openscion-daemon` binary: configured boot, warm from a snapshot file, serve
   over Unix/TCP, and persist the snapshot on a clean shutdown (phase 7 prelude).
+- [`openscion-daemon-upstream-bound.md`](openscion-daemon-upstream-bound.md) —
+  the daemon's upstream-concurrency bound and `Unavailable` load shedding, with
+  the shed carried across the wire so a lower tier re-sheds (phase 7).
