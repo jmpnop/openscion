@@ -3,6 +3,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use openscion_core::{PROTOCOL_VERSION, ServerInfo};
+use openscion_tier::Endpoint;
 use tokio::sync::oneshot;
 
 use super::Server;
@@ -64,6 +65,38 @@ async fn binding_an_address_in_use_fails_with_bind() {
     let taken = ServerConfig::new(first.local_addr());
     let error = Server::bind(&taken).await.unwrap_err();
     assert!(matches!(error, Error::Bind { addr, .. } if addr == first.local_addr()));
+}
+
+#[tokio::test]
+async fn a_configured_object_endpoint_is_bound_and_reported() {
+    let config = ServerConfig::new("127.0.0.1:0".parse().unwrap())
+        .with_object_listen(Endpoint::Tcp("127.0.0.1:0".parse().unwrap()));
+    let server = Server::bind(&config).await.unwrap();
+    let object = server.object_addr().unwrap();
+    assert!(object.starts_with("tcp:127.0.0.1:"));
+    // A resolved, non-zero port: the endpoint is actually bound.
+    assert!(!object.ends_with(":0"));
+}
+
+#[tokio::test]
+async fn without_an_object_endpoint_none_is_reported() {
+    let server = Server::bind(&ServerConfig::new("127.0.0.1:0".parse().unwrap()))
+        .await
+        .unwrap();
+    assert!(server.object_addr().is_none());
+}
+
+#[tokio::test]
+async fn binding_a_taken_object_endpoint_fails_with_object_listen() {
+    // Hold a port, then ask the server to serve its framed endpoint there.
+    let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = taken.local_addr().unwrap();
+    let config =
+        ServerConfig::new("127.0.0.1:0".parse().unwrap()).with_object_listen(Endpoint::Tcp(addr));
+    let error = Server::bind(&config).await.unwrap_err();
+    assert!(
+        matches!(error, Error::ObjectListen { endpoint, .. } if endpoint == Endpoint::Tcp(addr))
+    );
 }
 
 #[tokio::test]

@@ -3,6 +3,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use clap::Parser;
+use openscion_tier::Endpoint;
 
 use super::{DEFAULT_LISTEN, ServerConfig};
 
@@ -49,4 +50,49 @@ fn with_data_dir_sets_the_directory() {
         config.data_dir.as_deref(),
         Some(std::path::Path::new("/var/data"))
     );
+}
+
+#[test]
+fn the_object_endpoint_defaults_to_none() {
+    assert!(ServerConfig::default().object_listen.is_none());
+}
+
+#[test]
+fn a_tcp_object_endpoint_is_read_from_the_command_line() {
+    let config =
+        ServerConfig::try_parse_from(["openscion-server", "--object-listen", "tcp:127.0.0.1:7879"])
+            .unwrap();
+    assert_eq!(
+        config.object_listen,
+        Some(Endpoint::Tcp("127.0.0.1:7879".parse().unwrap()))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_unix_object_endpoint_is_read_from_the_command_line() {
+    let config = ServerConfig::try_parse_from([
+        "openscion-server",
+        "--object-listen",
+        "unix:/run/openscion/objects.sock",
+    ])
+    .unwrap();
+    assert_eq!(
+        config.object_listen,
+        Some(Endpoint::Unix("/run/openscion/objects.sock".into()))
+    );
+}
+
+#[test]
+fn an_invalid_object_endpoint_is_rejected() {
+    let parsed =
+        ServerConfig::try_parse_from(["openscion-server", "--object-listen", "not-an-endpoint"]);
+    assert!(parsed.is_err());
+}
+
+#[test]
+fn with_object_listen_sets_the_endpoint() {
+    let endpoint = Endpoint::Tcp("127.0.0.1:0".parse().unwrap());
+    let config = ServerConfig::default().with_object_listen(endpoint.clone());
+    assert_eq!(config.object_listen, Some(endpoint));
 }

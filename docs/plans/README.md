@@ -50,3 +50,7 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a test-first sample
 - [`openscion-cache.md`](openscion-cache.md) — the regional object cache: an
   in-memory `ObjectBacking` and the `openscion-cache` process that fronts it over
   `openscion-tier`, with a required upstream and no durable state (phase 7).
+- [`openscion-server-object-endpoint.md`](openscion-server-object-endpoint.md) —
+  the server's framed object endpoint: widen the tier transport to serve any
+  `ObjectService`, and serve the authoritative repository over it as the origin
+  of the read-through chain (phase 7).

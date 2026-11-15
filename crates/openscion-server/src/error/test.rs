@@ -18,6 +18,21 @@ fn a_bind_error_names_the_address() {
 }
 
 #[test]
+fn an_object_listen_error_names_the_endpoint() {
+    let error = Error::ObjectListen {
+        endpoint: "tcp:127.0.0.1:7879"
+            .parse()
+            .unwrap_or_else(|_| unreachable!()),
+        source: io::Error::from(io::ErrorKind::AddrInUse),
+    };
+    assert!(
+        error
+            .to_string()
+            .starts_with("cannot listen on object endpoint tcp:127.0.0.1:7879: ")
+    );
+}
+
+#[test]
 fn a_serve_error_renders_its_cause() {
     let error = Error::Serve(io::Error::other("listener closed"));
     assert_eq!(error.to_string(), "server stopped: listener closed");

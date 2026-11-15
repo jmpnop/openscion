@@ -25,5 +25,8 @@ async fn run(config: ServerConfig) -> Result<()> {
         "openscion-server listening on http://{}",
         server.local_addr()
     );
+    if let Some(object) = server.object_addr() {
+        println!("openscion-server serving framed objects on {object}");
+    }
     server.serve(shutdown_signal()).await
 }

@@ -26,11 +26,22 @@
 //!
 //! The `api` module documents each body and status code.
 //!
+//! # The framed object endpoint
+//!
+//! With `--object-listen` the server also speaks the tier's framed object RPCs
+//! ([ADR 0004](../../../docs/adr/0004-daemon-transport.md)) on a listener of its
+//! own, serving object bytes straight from the same repository. It is the origin
+//! of the read-through chain: a regional cache or node daemon points its upstream
+//! at it and reads objects over the same wire every tier speaks. The endpoint is
+//! read-only and independent of the HTTP API — without it the server serves HTTP
+//! exactly as before.
+//!
 //! # Entry points
 //!
 //! - [`ServerConfig`] — the command-line and environment configuration.
 //! - [`Server::bind`] then [`Server::serve`] — listen and serve until a
 //!   shutdown future resolves.
+//! - [`Server::object_addr`] — the bound framed object endpoint, when configured.
 //! - [`router`] — the HTTP routes, for embedding or testing.
 //!
 //! # Example
@@ -55,6 +66,7 @@ mod api;
 mod config;
 mod error;
 mod http;
+mod object;
 
 pub use api::{ApiError, MAX_BODY_BYTES, SharedRepository};
 pub use config::{DEFAULT_LISTEN, ServerConfig};

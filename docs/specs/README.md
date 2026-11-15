@@ -15,6 +15,7 @@
 | [Daemon upstream-concurrency bound and load shedding](openscion-daemon-upstream-bound.md) | Accepted |
 | [Shared tier crate (`openscion-tier`)](openscion-tier.md) | Accepted |
 | [Regional object cache (`openscion-cache`)](openscion-cache.md) | Accepted |
+| [The server's framed object endpoint](openscion-server-object-endpoint.md) | Accepted |
 
 Specifications define what the system must do before implementation details
 take over. Create one for behavior that changes a public API, crosses module

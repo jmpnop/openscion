@@ -16,6 +16,16 @@ pub enum Error {
         #[source]
         source: std::io::Error,
     },
+    /// The framed object endpoint (`--object-listen`) could not be bound,
+    /// usually because its address or socket path is in use.
+    #[error("cannot listen on object endpoint {endpoint}: {source}")]
+    ObjectListen {
+        /// The endpoint that was requested.
+        endpoint: openscion_tier::Endpoint,
+        /// The underlying I/O error.
+        #[source]
+        source: std::io::Error,
+    },
     /// The listener failed while serving.
     #[error("server stopped: {0}")]
     Serve(#[source] std::io::Error),

@@ -7,6 +7,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use clap::Parser;
+use openscion_tier::Endpoint;
 
 /// The address the server listens on when none is configured.
 ///
@@ -32,6 +33,13 @@ pub struct ServerConfig {
     /// everything in memory and a restart starts empty.
     #[arg(long, env = "OPENSCION_DATA_DIR")]
     pub data_dir: Option<PathBuf>,
+
+    /// Endpoint to serve the framed object RPCs on, as `tcp:<addr>` or
+    /// `unix:<path>`, for caches and daemons to read through. Without it the
+    /// server serves only its HTTP API, exactly as before; exposing the object
+    /// tier is a deliberate choice, like `--listen` and `--data-dir`.
+    #[arg(long, env = "OPENSCION_OBJECT_LISTEN")]
+    pub object_listen: Option<Endpoint>,
 }
 
 impl ServerConfig {
@@ -51,6 +59,7 @@ impl ServerConfig {
         Self {
             listen,
             data_dir: None,
+            object_listen: None,
         }
     }
 
@@ -58,6 +67,14 @@ impl ServerConfig {
     #[must_use]
     pub fn with_data_dir(mut self, data_dir: impl Into<PathBuf>) -> Self {
         self.data_dir = Some(data_dir.into());
+        self
+    }
+
+    /// Serves the framed object RPCs on `endpoint`, for caches and daemons to
+    /// read through.
+    #[must_use]
+    pub fn with_object_listen(mut self, endpoint: Endpoint) -> Self {
+        self.object_listen = Some(endpoint);
         self
     }
 }

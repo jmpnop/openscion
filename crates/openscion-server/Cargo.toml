@@ -21,6 +21,10 @@ path = "src/main.rs"
 # answers with. The `sqlite` feature pulls in the persistent metadata store the
 # server selects with `--data-dir`.
 openscion-core = { workspace = true, features = ["sqlite"] }
+# The shared tier layer: the framed object transport, its `Endpoint`, and the
+# `ObjectService` the server serves its authoritative objects over, so a cache
+# or daemon can read through the server on the same wire every tier speaks.
+openscion-tier = { workspace = true }
 axum = { workspace = true }
 clap = { workspace = true }
 # The query routes deserialize their path and recursion flags from the URL

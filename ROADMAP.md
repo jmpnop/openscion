@@ -164,6 +164,19 @@ This page tracks where things stand.
   daemon and the cache parse one form; the daemon re-exports it, unchanged. No
   third-party dependency beyond those the daemon already uses.
 
+- **The server's framed object endpoint** (phase 7)
+  ([spec](docs/specs/openscion-server-object-endpoint.md),
+  [plan](docs/plans/openscion-server-object-endpoint.md)): `openscion-server`
+  now speaks the framed object RPCs, so the read-through chain has an origin. The
+  `openscion-tier` transport was widened to serve any `ObjectService` — a trait
+  the read-through `Store` implements, so the daemon and cache are unchanged —
+  and the server serves a `RepositoryObjects` adapter over its authoritative
+  `Repository`. An opt-in `--object-listen` (`tcp:`/`unix:`) binds a second,
+  read-only listener beside the HTTP API; its sync accept loop runs on a thread
+  alongside the async HTTP server. As the origin it has no tier above and sheds
+  nothing. A blob uploaded over HTTP is read back over the framed wire by a tier
+  client in an end-to-end test. No third-party dependency beyond `openscion-tier`.
+
 ## Next
 
 1. **Network tiers** (phase 7): the distributed `MetadataStore`

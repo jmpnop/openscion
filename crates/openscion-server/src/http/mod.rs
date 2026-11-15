@@ -17,6 +17,7 @@ use openscion_core::{
 };
 use tokio::net::TcpListener;
 
+use crate::object::{self, RepositoryObjects, bind_object_listener, serve_objects};
 use crate::{Error, Result, ServerConfig, SharedRepository, api};
 
 /// Builds the server's HTTP routes over `repository`.
@@ -48,19 +49,29 @@ async fn version() -> Json<ServerInfo> {
 
 /// A bound, not-yet-serving server with its repository: persistent when the
 /// configuration names a data directory, in memory otherwise.
+///
+/// When `--object-listen` is configured it also carries the bound framed object
+/// listener, so the server serves the tier's object RPCs from the same
+/// repository beside its HTTP API.
 #[derive(Debug)]
 pub struct Server {
     listener: TcpListener,
     local_addr: SocketAddr,
     repository: SharedRepository,
+    object: Option<object::Listener>,
+    object_listening: Option<String>,
 }
 
 impl Server {
-    /// Binds the configured listen address.
+    /// Binds the configured HTTP listen address and, when `--object-listen` is
+    /// set, the framed object endpoint — both before serving, so a bad or taken
+    /// address fails fast.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Bind`] when the address cannot be bound.
+    /// Returns [`Error::Bind`] when the HTTP address cannot be bound,
+    /// [`Error::ObjectListen`] when the object endpoint cannot be bound, and
+    /// [`Error::Store`] when the data directory cannot be opened.
     pub async fn bind(config: &ServerConfig) -> Result<Self> {
         // Open the stores before binding, so a bad data directory fails fast.
         let repository = Arc::new(RwLock::new(repository(config)?));
@@ -70,10 +81,19 @@ impl Server {
         };
         let listener = TcpListener::bind(config.listen).await.map_err(bind_error)?;
         let local_addr = listener.local_addr().map_err(bind_error)?;
+        let (object, object_listening) = match &config.object_listen {
+            Some(endpoint) => {
+                let (listener, listening) = bind_object_listener(endpoint)?;
+                (Some(listener), Some(listening))
+            }
+            None => (None, None),
+        };
         Ok(Self {
             listener,
             local_addr,
             repository,
+            object,
+            object_listening,
         })
     }
 
@@ -83,13 +103,26 @@ impl Server {
         self.local_addr
     }
 
+    /// The framed object endpoint the server is bound to, as a
+    /// `tcp:<addr>`/`unix:<path>` string, or `None` when none is configured.
+    #[must_use]
+    pub fn object_addr(&self) -> Option<&str> {
+        self.object_listening.as_deref()
+    }
+
     /// Serves [`router`] until `shutdown` resolves, then finishes in-flight
-    /// requests and returns.
+    /// requests and returns. When an object endpoint is bound, its framed accept
+    /// loop is spawned first, serving the same repository on its own thread for
+    /// the life of the process.
     ///
     /// # Errors
     ///
     /// Returns [`Error::Serve`] when the listener fails.
     pub async fn serve(self, shutdown: impl Future<Output = ()> + Send + 'static) -> Result<()> {
+        if let Some(listener) = self.object {
+            let service = Arc::new(RepositoryObjects::new(Arc::clone(&self.repository)));
+            serve_objects(listener, service);
+        }
         axum::serve(self.listener, router(self.repository))
             .with_graceful_shutdown(shutdown)
             .await
