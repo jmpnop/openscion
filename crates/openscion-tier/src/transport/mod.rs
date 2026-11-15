@@ -24,9 +24,8 @@ use std::os::unix::net::{UnixListener, UnixStream};
 
 use openscion_core::ObjectId;
 
-use crate::backing::ObjectBacking;
+use crate::service::ObjectService;
 use crate::source::ObjectSource;
-use crate::store::Store;
 use crate::{Error, Result};
 
 /// Request: get the object with this id. Body is the 32-byte id.
@@ -46,26 +45,26 @@ const TAG_UNAVAILABLE: u8 = 5;
 /// demand from a peer. Objects beyond this are chunked by the data model.
 const MAX_BODY: u64 = 1 << 32;
 
-/// Serves object RPCs from `store` over one connection until the peer closes
+/// Serves object RPCs from `service` over one connection until the peer closes
 /// it. Generic over the stream, so it serves a Unix socket and a TCP connection
-/// the same way.
+/// the same way, and over the [`ObjectService`], so it serves a cache
+/// [`Store`](crate::Store) and an origin's authoritative store alike.
 ///
 /// # Errors
 ///
 /// Returns [`Error::Protocol`] on a malformed frame and [`Error::Transport`] on
 /// a read or write failure; a clean close is `Ok(())`.
-pub fn serve_connection<St, S, B>(mut stream: St, store: &Store<S, B>) -> Result<()>
+pub fn serve_connection<St, Svc>(mut stream: St, service: &Svc) -> Result<()>
 where
     St: Read + Write,
-    S: ObjectSource,
-    B: ObjectBacking,
+    Svc: ObjectService + ?Sized,
 {
     while let Some((tag, body)) = read_frame(&mut stream)? {
         if tag != TAG_GET {
             return Err(Error::Protocol(format!("unexpected request tag {tag}")));
         }
         let id = id_from(&body)?;
-        match store.get(id) {
+        match service.get(id) {
             Ok(bytes) => write_frame(&mut stream, TAG_FOUND, &bytes)?,
             Err(Error::NotFound(_)) => write_frame(&mut stream, TAG_ABSENT, &[])?,
             Err(Error::Unavailable(reason)) => {
@@ -77,44 +76,42 @@ where
     Ok(())
 }
 
-/// Accepts connections on `listener` and serves each from `store` on its own
+/// Accepts connections on `listener` and serves each from `service` on its own
 /// thread, until accepting fails.
 ///
 /// # Errors
 ///
 /// Returns [`Error::Transport`] when accepting a connection fails.
-pub fn serve_tcp<S, B>(listener: &TcpListener, store: &Arc<Store<S, B>>) -> Result<()>
+pub fn serve_tcp<Svc>(listener: &TcpListener, service: &Arc<Svc>) -> Result<()>
 where
-    S: ObjectSource + 'static,
-    B: ObjectBacking + 'static,
+    Svc: ObjectService + 'static,
 {
     for stream in listener.incoming() {
         let stream = stream.map_err(Error::Transport)?;
-        let store = Arc::clone(store);
+        let service = Arc::clone(service);
         std::thread::spawn(move || {
-            let _ = serve_connection(stream, &store);
+            let _ = serve_connection(stream, &*service);
         });
     }
     Ok(())
 }
 
-/// Accepts connections on a Unix-domain `listener` and serves each from `store`
-/// on its own thread, until accepting fails.
+/// Accepts connections on a Unix-domain `listener` and serves each from
+/// `service` on its own thread, until accepting fails.
 ///
 /// # Errors
 ///
 /// As [`serve_tcp`].
 #[cfg(unix)]
-pub fn serve_unix<S, B>(listener: &UnixListener, store: &Arc<Store<S, B>>) -> Result<()>
+pub fn serve_unix<Svc>(listener: &UnixListener, service: &Arc<Svc>) -> Result<()>
 where
-    S: ObjectSource + 'static,
-    B: ObjectBacking + 'static,
+    Svc: ObjectService + 'static,
 {
     for stream in listener.incoming() {
         let stream = stream.map_err(Error::Transport)?;
-        let store = Arc::clone(store);
+        let service = Arc::clone(service);
         std::thread::spawn(move || {
-            let _ = serve_connection(stream, &store);
+            let _ = serve_connection(stream, &*service);
         });
     }
     Ok(())

@@ -19,6 +19,11 @@
 //! - [`BoundedSource`] caps a tier's concurrent upstream fetches and sheds the
 //!   overflow with [`Error::Unavailable`], so a saturated tier does not stampede
 //!   the one above it.
+//! - [`ObjectService`] is what the transport serves: an id resolves to bytes, is
+//!   absent, is shed, or fails. [`Store`] implements it, so the daemon and the
+//!   cache serve their store; an origin that holds authoritative objects — the
+//!   server — implements it over its own store, and the same transport serves
+//!   either.
 //! - The [transport](serve_connection) carries the object RPCs as length-framed
 //!   `openscion-proto` payloads over a Unix socket locally or TCP between
 //!   machines; [`SocketSource`] is itself an [`ObjectSource`], so a store on one
@@ -57,6 +62,7 @@ mod backing;
 mod bound;
 mod endpoint;
 mod error;
+mod service;
 mod source;
 mod store;
 #[cfg(test)]
@@ -67,6 +73,7 @@ pub use backing::{ObjectBacking, ObjectCache};
 pub use bound::BoundedSource;
 pub use endpoint::{Endpoint, EndpointParseError};
 pub use error::{Error, Result};
+pub use service::ObjectService;
 pub use source::ObjectSource;
 pub use store::{Store, Warmed};
 #[cfg(unix)]

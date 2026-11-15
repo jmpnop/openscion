@@ -78,6 +78,47 @@ fn serves_found_and_absent_objects_over_tcp() {
 }
 
 #[test]
+fn serves_a_bare_object_service_not_only_a_store() {
+    // The transport serves any ObjectService, not only a cache Store: an origin
+    // that holds authoritative objects — the server — serves the same wire from
+    // its own store, with no tier above and nothing to shed.
+    use openscion_core::ObjectId;
+
+    use crate::{Error, ObjectService};
+
+    struct OneObject {
+        id: ObjectId,
+        bytes: Arc<[u8]>,
+    }
+    impl ObjectService for OneObject {
+        fn get(&self, id: ObjectId) -> crate::Result<Arc<[u8]>> {
+            if id == self.id {
+                Ok(Arc::clone(&self.bytes))
+            } else {
+                Err(Error::NotFound(id))
+            }
+        }
+    }
+
+    let id = blob_id(b"authoritative");
+    let service = Arc::new(OneObject {
+        id,
+        bytes: Arc::from(&b"authoritative"[..]),
+    });
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        let _ = serve_tcp(&listener, &service);
+    });
+
+    let client = SocketSource::tcp(addr);
+    assert_eq!(&*client.fetch(id).unwrap().unwrap(), b"authoritative");
+    // A miss is absent, mapped from the service's NotFound.
+    assert_eq!(client.fetch(blob_id(b"absent")).unwrap(), None);
+}
+
+#[test]
 fn a_store_can_front_a_server_over_the_wire() {
     // The tier above is a server; a near store reads through to it over TCP.
     let far = MemorySource::new();
