@@ -30,7 +30,7 @@ fn a_path_error_converts_into_a_core_error() {
     let error: Error = path_error.into();
     assert!(matches!(error, Error::Core(_)));
     // The transparent core error still renders a non-empty message.
-    assert!(!error.to_string().is_empty());
+    assert_ne!(error.to_string(), "");
 }
 
 #[test]

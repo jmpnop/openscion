@@ -139,7 +139,10 @@ fn deleting_everything_leaves_the_empty_tree() {
     let root = commit(&mut repo, &[], vec![change]).unwrap();
     let next = commit(&mut repo, &[root], vec![delete("only.txt")]).unwrap();
     assert_eq!(next.root_tree, object_id(ObjectKind::Tree, b""));
-    assert!(repo.tree(next.root_tree).unwrap().is_empty());
+    assert_eq!(
+        repo.tree(next.root_tree).unwrap(),
+        [] as [openscion_proto::TreeEntry; 0]
+    );
 }
 
 #[test]
@@ -384,7 +387,7 @@ fn objects_are_readable() {
     assert!(repo.object(root.root_tree).is_ok());
     // The tree names entries whose objects are retrievable.
     let top = repo.tree(root.root_tree).unwrap();
-    assert!(!top.is_empty());
+    assert_ne!(top, [] as [openscion_proto::TreeEntry; 0]);
     assert!(repo.object(top[0].id).is_ok());
     // An object that was never stored is not found.
     assert!(matches!(
@@ -629,7 +632,10 @@ fn the_skip_list_holds_power_of_two_ancestors() {
         ids.push(commit1(&mut repo, &[parent], "f", format!("v{i}").as_bytes()).id);
     }
     // A root has no first-parent ancestors.
-    assert!(repo.first_parent_skips(ids[0]).unwrap().is_empty());
+    assert_eq!(
+        repo.first_parent_skips(ids[0]).unwrap(),
+        [] as [openscion_proto::ObjectId; 0]
+    );
     // The node 32 deep carries skips for k = 0..=5 (2^5 = 32 reaches the root),
     // and skip k is the ancestor exactly 2^k changesets back.
     let skips = repo.first_parent_skips(*ids.last().unwrap()).unwrap();
@@ -781,10 +787,13 @@ fn snapshot_stat_list_tree_and_read_file() {
             .len(),
         1
     );
-    assert!(
-        repo.list_tree(cs.id, Some(&path("gone")), true)
-            .unwrap()
-            .is_empty()
+    assert_eq!(
+        repo.list_tree(cs.id, Some(&path("gone")), true).unwrap(),
+        [] as [(
+            std::string::String,
+            openscion_proto::EntryKind,
+            openscion_proto::ObjectId
+        ); 0]
     );
 }
 
@@ -819,7 +828,10 @@ fn diff_turns_one_snapshot_into_the_other() {
     );
     assert_eq!(only_src.len(), 2);
     // A diff of a snapshot against itself is empty.
-    assert!(repo.diff(b.id, b.id, &[]).unwrap().is_empty());
+    assert_eq!(
+        repo.diff(b.id, b.id, &[]).unwrap(),
+        [] as [openscion_proto::Change; 0]
+    );
 }
 
 #[test]

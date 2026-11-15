@@ -76,7 +76,7 @@ fn diff_treats_a_kind_change_as_an_upsert() {
     let result = diff(&previous, &current).unwrap();
     assert_eq!(result.upserts.len(), 1);
     assert_eq!(result.upserts[0].kind, EntryKind::Executable);
-    assert!(result.deletes.is_empty());
+    assert_eq!(result.deletes, [] as [openscion_core::RepoPath; 0]);
 }
 
 #[test]
@@ -85,5 +85,5 @@ fn diff_of_identical_trees_is_empty() {
     let tree = BTreeMap::from([("f".to_owned(), entry(EntryKind::File, a))]);
     let result = diff(&tree, &tree).unwrap();
     assert!(result.upserts.is_empty());
-    assert!(result.deletes.is_empty());
+    assert_eq!(result.deletes, [] as [openscion_core::RepoPath; 0]);
 }

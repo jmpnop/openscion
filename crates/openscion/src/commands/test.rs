@@ -211,7 +211,7 @@ fn status_is_clean_on_a_fresh_clone_and_after_a_mere_touch() {
     let (client, _) = imported();
     let work = scratch("status-clean");
     clone(&client, "main", &work, None).unwrap();
-    assert!(status(&work).unwrap().is_empty());
+    assert_eq!(status(&work).unwrap().len(), 0);
     // Rewrite a file with its original bytes: its stat data moves, not content.
     fs::write(work.join("README.md"), b"# demo\n").unwrap();
     assert!(status(&work).unwrap().is_empty(), "a touch is not a change");
@@ -336,7 +336,7 @@ fn sparse_remove_deletes_untracks_and_prunes() {
     );
     assert!(dest.join("src/lib.rs").exists());
     // Nothing tracked is missing, so status reports no pending deletion.
-    assert!(status(&dest).unwrap().is_empty());
+    assert_eq!(status(&dest).unwrap().len(), 0);
 }
 
 #[test]
@@ -428,5 +428,5 @@ fn uploads_are_split_into_batches() {
     assert_eq!(super::upload_in_batches(&client, &blobs, 100).unwrap(), 2);
     assert_eq!(super::upload_in_batches(&client, &[], 100).unwrap(), 0);
     let ids: Vec<_> = blobs.iter().map(|(id, _)| *id).collect();
-    assert!(!client.fetch_objects(ids).unwrap().is_empty());
+    assert_ne!(client.fetch_objects(ids).unwrap().len(), 0);
 }

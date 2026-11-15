@@ -89,7 +89,7 @@ fn the_first_refresh_is_a_full_status() {
 fn a_changed_burst_updates_only_the_named_paths() {
     let root = working_copy(&[("a.txt", b"a"), ("b.txt", b"b")]);
     let mut session = WatchSession::open(&root).unwrap();
-    assert!(report(&mut session).is_empty());
+    assert_eq!(report(&mut session).len(), 0);
 
     fs::write(root.join("a.txt"), b"aa").unwrap();
     fs::write(root.join("c.txt"), b"c").unwrap();
@@ -112,7 +112,7 @@ fn a_changed_burst_updates_only_the_named_paths() {
         "a.txt".to_owned(),
         "c.txt".to_owned(),
     ]));
-    assert!(report(&mut session).is_empty());
+    assert_eq!(report(&mut session).len(), 0);
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn a_touch_with_identical_bytes_is_no_change() {
     // Rewrite with identical bytes: an event fires, but the content is the same.
     fs::write(root.join("a.txt"), b"same").unwrap();
     session.apply(WatchEvent::Changed(vec!["a.txt".to_owned()]));
-    assert!(report(&mut session).is_empty());
+    assert_eq!(report(&mut session).len(), 0);
 }
 
 #[test]

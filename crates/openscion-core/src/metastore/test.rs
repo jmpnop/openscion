@@ -84,7 +84,10 @@ fn the_skip_list_round_trips() {
             skips: vec![id(1)],
         })
         .unwrap();
-    assert!(store.first_parent_skips(id(1)).unwrap().unwrap().is_empty());
+    assert_eq!(
+        store.first_parent_skips(id(1)).unwrap().unwrap(),
+        [] as [openscion_proto::ObjectId; 0]
+    );
     assert_eq!(
         store.first_parent_skips(id(3)).unwrap().unwrap(),
         vec![id(1)]
@@ -194,7 +197,10 @@ mod sqlite {
                 skips: vec![id(1)],
             })
             .unwrap();
-        assert!(store.first_parent_skips(id(1)).unwrap().unwrap().is_empty());
+        assert_eq!(
+            store.first_parent_skips(id(1)).unwrap().unwrap(),
+            [] as [openscion_proto::ObjectId; 0]
+        );
         assert_eq!(
             store.first_parent_skips(id(3)).unwrap().unwrap(),
             vec![id(1)]
@@ -234,7 +240,10 @@ mod sqlite {
         }
         let store = SqliteMetadataStore::open(&path).unwrap();
         // The migrated row reads back with an empty skip list, not an error.
-        assert!(store.first_parent_skips(id(1)).unwrap().unwrap().is_empty());
+        assert_eq!(
+            store.first_parent_skips(id(1)).unwrap().unwrap(),
+            [] as [openscion_proto::ObjectId; 0]
+        );
         assert_eq!(store.record(id(1)).unwrap().unwrap().generation, 1);
         let _ = std::fs::remove_file(&path);
     }

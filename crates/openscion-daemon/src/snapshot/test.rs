@@ -48,7 +48,10 @@ fn ids_round_trip_in_order() {
 #[test]
 fn a_missing_file_is_an_empty_set() {
     let file = TempFile::new();
-    assert!(read_ids(&file.path).unwrap().is_empty());
+    assert_eq!(
+        read_ids(&file.path).unwrap(),
+        [] as [openscion_core::ObjectId; 0]
+    );
 }
 
 #[test]

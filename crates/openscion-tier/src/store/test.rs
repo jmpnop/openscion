@@ -104,7 +104,7 @@ fn corrupt_upstream_bytes_are_rejected_and_not_cached() {
     // Not cached: a second get fetches again rather than serving bad bytes.
     assert!(matches!(store.get(id), Err(crate::Error::Corrupt { .. })));
     assert_eq!(source.fetches(), 2);
-    assert!(store.snapshot().is_empty());
+    assert_eq!(store.snapshot(), [] as [openscion_core::ObjectId; 0]);
 }
 
 #[test]

@@ -133,7 +133,7 @@ fn co_changes_finds_paths_that_move_together() {
 #[test]
 fn an_empty_plane_answers_with_nothing() {
     let insights = Insights::in_memory().unwrap();
-    assert!(insights.hotspots(10).unwrap().is_empty());
-    assert!(insights.author_activity().unwrap().is_empty());
-    assert!(insights.co_changes("anything", 10).unwrap().is_empty());
+    assert_eq!(insights.hotspots(10).unwrap().len(), 0);
+    assert_eq!(insights.author_activity().unwrap().len(), 0);
+    assert_eq!(insights.co_changes("anything", 10).unwrap().len(), 0);
 }

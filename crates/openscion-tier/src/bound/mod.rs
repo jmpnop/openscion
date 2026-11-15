@@ -57,18 +57,29 @@ impl<S> BoundedSource<S> {
         self.limit
     }
 
-    /// Takes a slot if fewer than `limit` are in use, else `None`. The compare
-    /// and increment are one atomic step, so no two callers can both take the
-    /// last slot.
+    /// Takes a slot if fewer than `limit` are in use, else `None`. Each attempt
+    /// to claim a slot is a single compare-and-exchange, so no two callers can
+    /// both take the last slot; a lost race re-reads the count and retries.
     fn acquire(&self) -> Option<Permit<'_>> {
-        self.in_flight
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |in_flight| {
-                (in_flight < self.limit).then_some(in_flight + 1)
-            })
-            .ok()
-            .map(|_| Permit {
-                in_flight: &self.in_flight,
-            })
+        let mut in_flight = self.in_flight.load(Ordering::Acquire);
+        loop {
+            if in_flight >= self.limit {
+                return None;
+            }
+            match self.in_flight.compare_exchange_weak(
+                in_flight,
+                in_flight + 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    return Some(Permit {
+                        in_flight: &self.in_flight,
+                    });
+                }
+                Err(observed) => in_flight = observed,
+            }
+        }
     }
 }
 
