@@ -1,0 +1,33 @@
+[package]
+name = "openscion-cache"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The OpenScion regional object cache: an in-memory, read-through object tier."
+# Not published to crates.io; it ships as a server-side binary with its phase.
+publish = false
+
+[dependencies]
+# The shared tier layer: the object ports, the read-through store, the
+# upstream-concurrency bound, the framed transport, and the endpoint type. The
+# cache assembles these over an in-memory backing into a regional process.
+openscion-tier = { workspace = true }
+# The engine, for object ids (ObjectId) the in-memory backing is keyed by.
+openscion-core = { workspace = true }
+# The `openscion-cache` binary's flag/env configuration, as the daemon and
+# server.
+clap = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+# Synchronous SIGINT/SIGTERM handling for the binary's graceful shutdown; see
+# the workspace entry. Unix only, matching the daemon.
+signal-hook = { workspace = true }
+
+[dev-dependencies]
+# The binary integration test builds an object id to request over the wire.
+openscion-core = { workspace = true }
+
+[lints]
+workspace = true

@@ -23,6 +23,10 @@
 //!   `openscion-proto` payloads over a Unix socket locally or TCP between
 //!   machines; [`SocketSource`] is itself an [`ObjectSource`], so a store on one
 //!   tier reads through a server on the tier above over the same wire.
+//! - [`Endpoint`] names where a tier listens or the tier above it is dialed —
+//!   one scheme-prefixed `tcp:<addr>`/`unix:<path>` form shared by every tier so
+//!   a single operator-facing flag spans them; [`dial`](Endpoint::dial) turns
+//!   one into the [`SocketSource`] that reads through it.
 //!
 //! This crate deliberately holds no process assembly, configuration, or
 //! signal handling — those belong to the daemon, the cache, and the server that
@@ -51,6 +55,7 @@
 
 mod backing;
 mod bound;
+mod endpoint;
 mod error;
 mod source;
 mod store;
@@ -60,6 +65,7 @@ mod transport;
 
 pub use backing::{ObjectBacking, ObjectCache};
 pub use bound::BoundedSource;
+pub use endpoint::{Endpoint, EndpointParseError};
 pub use error::{Error, Result};
 pub use source::ObjectSource;
 pub use store::{Store, Warmed};

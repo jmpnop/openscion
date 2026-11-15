@@ -1,4 +1,11 @@
 //! The listen/dial endpoint type: a scheme-prefixed TCP address or Unix path.
+//!
+//! An [`Endpoint`] names where a tier accepts connections or dials the tier
+//! above, parsed from one scheme-prefixed string so a single operator-facing
+//! flag spans every tier. It lives here, beside the [transport](crate::transport)
+//! it addresses, so the daemon, the cache, and the server share one parser
+//! rather than each carrying its own. [`dial`](Endpoint::dial) bridges an
+//! endpoint to the [`SocketSource`] that reads through the tier above it.
 
 use std::fmt;
 use std::net::SocketAddr;
@@ -6,7 +13,9 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-/// Where the daemon accepts connections, or dials a tier above.
+use crate::transport::SocketSource;
+
+/// Where a tier accepts connections, or dials a tier above.
 ///
 /// Parsed from a scheme-prefixed string — `tcp:<addr>` or `unix:<path>` — so one
 /// flag names either transport unambiguously. [`Display`](fmt::Display) renders
@@ -19,6 +28,19 @@ pub enum Endpoint {
     /// A Unix-domain socket path, from `unix:<path>`.
     #[cfg(unix)]
     Unix(PathBuf),
+}
+
+impl Endpoint {
+    /// A [`SocketSource`] that reads through the tier above at this endpoint, so
+    /// a store on one tier fetches from the tier above over the framed wire.
+    #[must_use]
+    pub fn dial(&self) -> SocketSource {
+        match self {
+            Self::Tcp(addr) => SocketSource::tcp(*addr),
+            #[cfg(unix)]
+            Self::Unix(path) => SocketSource::unix(path.clone()),
+        }
+    }
 }
 
 impl fmt::Display for Endpoint {
@@ -68,3 +90,6 @@ impl fmt::Display for EndpointParseError {
 }
 
 impl std::error::Error for EndpointParseError {}
+
+#[cfg(test)]
+mod test;

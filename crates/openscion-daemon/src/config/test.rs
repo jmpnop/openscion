@@ -1,4 +1,8 @@
-//! Unit tests for endpoint parsing and the command-line configuration.
+//! Unit tests for the command-line configuration.
+//!
+//! The endpoint type's own parse/display tests live with it in
+//! `openscion-tier`; these exercise `DaemonConfig`'s flags, defaults, and
+//! builders, including that a bogus endpoint is a usage error through clap.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -7,46 +11,6 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use super::{DEFAULT_BUDGET_BYTES, DEFAULT_UPSTREAM_CONCURRENCY, DaemonConfig, Endpoint};
-
-#[test]
-fn a_tcp_endpoint_parses_and_displays() {
-    let endpoint: Endpoint = "tcp:127.0.0.1:7979".parse().unwrap();
-    assert_eq!(endpoint, Endpoint::Tcp(([127, 0, 0, 1], 7979).into()));
-    assert_eq!(endpoint.to_string(), "tcp:127.0.0.1:7979");
-}
-
-#[test]
-fn a_tcp_endpoint_accepts_an_ipv6_address() {
-    let endpoint: Endpoint = "tcp:[::1]:7979".parse().unwrap();
-    assert_eq!(endpoint.to_string(), "tcp:[::1]:7979");
-}
-
-#[cfg(unix)]
-#[test]
-fn a_unix_endpoint_parses_and_displays() {
-    let endpoint: Endpoint = "unix:/run/openscion/d.sock".parse().unwrap();
-    assert_eq!(
-        endpoint,
-        Endpoint::Unix(PathBuf::from("/run/openscion/d.sock"))
-    );
-    assert_eq!(endpoint.to_string(), "unix:/run/openscion/d.sock");
-}
-
-#[cfg(unix)]
-#[test]
-fn a_unix_endpoint_needs_a_path() {
-    let error = "unix:".parse::<Endpoint>().unwrap_err();
-    assert_eq!(error.to_string(), "a unix endpoint needs a path");
-}
-
-#[test]
-fn a_malformed_endpoint_is_an_error() {
-    assert!("".parse::<Endpoint>().is_err());
-    assert!("http:x".parse::<Endpoint>().is_err());
-    assert!("tcp".parse::<Endpoint>().is_err());
-    let error = "tcp:not-an-addr".parse::<Endpoint>().unwrap_err();
-    assert!(error.to_string().contains("not a TCP socket address"));
-}
 
 #[test]
 fn only_a_data_dir_takes_every_default() {

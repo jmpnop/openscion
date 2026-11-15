@@ -47,3 +47,6 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a test-first sample
 - [`openscion-tier.md`](openscion-tier.md) — extract the shared tier machinery
   (ports, read-through store, bound, transport) into `openscion-tier` so the
   cache and the server's framed endpoint reuse it (phase 7 enabler).
+- [`openscion-cache.md`](openscion-cache.md) — the regional object cache: an
+  in-memory `ObjectBacking` and the `openscion-cache` process that fronts it over
+  `openscion-tier`, with a required upstream and no durable state (phase 7).

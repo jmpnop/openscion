@@ -4,14 +4,15 @@
 //! the same binary runs unchanged from a shell, a container, or a service
 //! manager — as `openscion-server`.
 
-mod types;
-
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use clap::Parser;
 
-pub use types::{Endpoint, EndpointParseError};
+// The listen/dial endpoint type lives in the shared tier layer, beside the
+// transport it addresses, so the daemon and the cache parse one form; the daemon
+// keeps re-exporting it, so its public surface is unchanged.
+pub use openscion_tier::{Endpoint, EndpointParseError};
 
 /// The endpoint the daemon listens on when none is configured.
 ///

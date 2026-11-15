@@ -147,6 +147,23 @@ This page tracks where things stand.
   which reuse the crate rather than duplicating it
   ([ADR 0004](docs/adr/0004-daemon-transport.md)).
 
+- **Regional object cache** (phase 7)
+  ([spec](docs/specs/openscion-cache.md), [plan](docs/plans/openscion-cache.md)):
+  the new `openscion-cache` crate — an in-memory `MemoryBacking` (an
+  `ObjectBacking`) and the `RegionalCache` process that fronts it over
+  `openscion-tier`. It opens the shared read-through `Store` over the in-memory
+  backing, bounds its upstream concurrency, and serves the same framed object
+  RPCs as the daemon and the server, so a region's nodes read nearby instead of
+  from the server. Unlike the daemon it holds nothing durable: no data directory,
+  no snapshot — it starts empty and a restart loses only warmth, exactly as the
+  architecture prescribes for an immutable-object cache. Its upstream is
+  required (a cache with nothing above it has nothing to cache), and its fetches
+  shed with `Unavailable` through the same `BoundedSource`, so a daemon reading
+  through a saturated cache re-sheds rather than stampeding it. The shared
+  endpoint type (`tcp:`/`unix:` addressing) moved into `openscion-tier` so the
+  daemon and the cache parse one form; the daemon re-exports it, unchanged. No
+  third-party dependency beyond those the daemon already uses.
+
 ## Next
 
 1. **Network tiers** (phase 7): the distributed `MetadataStore`

@@ -41,9 +41,7 @@ impl Upstream {
     /// Builds the tier above from the configured `--upstream` endpoint.
     fn from_endpoint(endpoint: Option<&Endpoint>) -> Self {
         match endpoint {
-            Some(Endpoint::Tcp(addr)) => Self::Socket(SocketSource::tcp(*addr)),
-            #[cfg(unix)]
-            Some(Endpoint::Unix(path)) => Self::Socket(SocketSource::unix(path.clone())),
+            Some(endpoint) => Self::Socket(endpoint.dial()),
             None => Self::Detached,
         }
     }
