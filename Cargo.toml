@@ -53,8 +53,10 @@ openscion-tier = { path = "crates/openscion-tier" }
 blake3 = "1"
 # The SQLite-backed metadata store, behind openscion-core's opt-in `sqlite`
 # feature. `bundled` compiles a pinned SQLite instead of linking the system
-# one, so builds are reproducible and need no system library.
-rusqlite = { version = "0.37", features = ["bundled"] }
+# one, so builds are reproducible and need no system library. Pinned at >=0.41
+# (libsqlite3-sys >=0.39, bundling SQLite >=3.54.0) to carry the fix for
+# RUSTSEC-2026-0459 / CVE-2026-119375.
+rusqlite = { version = "0.41", features = ["bundled"] }
 # The CLI, taken by the benchmarks to drive `opnscn` in-process. Unpublished
 # consumers only, so it needs no `version`.
 openscion = { path = "crates/openscion" }
