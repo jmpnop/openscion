@@ -163,6 +163,30 @@ fn it_allows_at_most_the_limit_of_concurrent_fetches() {
 }
 
 #[test]
+fn a_batch_within_the_limit_passes_results_through() {
+    let inner = MemorySource::new();
+    let present = inner.add(b"alpha");
+    let source = BoundedSource::new(inner, 2);
+
+    let results = source.fetch_many(&[present, id(9)]).unwrap();
+    assert_eq!(results[0].as_deref(), Some(&b"alpha"[..]));
+    // An unknown id is a plain absence within the batch, not a shed.
+    assert_eq!(results[1], None);
+}
+
+#[test]
+fn a_batch_is_shed_as_a_unit_when_the_limit_is_reached() {
+    let inner = MemorySource::new();
+    let present = inner.add(b"never served");
+    // A limit of zero sheds the whole batch before it reaches the inner source.
+    let source = BoundedSource::new(inner, 0);
+    assert!(matches!(
+        source.fetch_many(&[present, id(9)]),
+        Err(Error::Unavailable(_))
+    ));
+}
+
+#[test]
 fn a_limit_of_zero_sheds_every_fetch_and_names_the_limit() {
     let inner = MemorySource::new();
     let present = inner.add(b"unreachable");

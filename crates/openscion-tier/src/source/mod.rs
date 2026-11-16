@@ -21,4 +21,20 @@ pub trait ObjectSource: Send + Sync {
     /// Returns an error only when the upstream could not be reached or answered
     /// improperly — never for a plain absence, which is `Ok(None)`.
     fn fetch(&self, id: ObjectId) -> Result<Option<Arc<[u8]>>>;
+
+    /// The bytes of each of `ids`, in the same order: `Some` when found, `None`
+    /// when no tier above holds it.
+    ///
+    /// The default fetches them one at a time; a networked source overrides this
+    /// to answer the whole batch in one round-trip. A batch is one upstream
+    /// operation: a bound on upstream concurrency admits or sheds it as a whole.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first id's error — an unreachable upstream, an improper reply,
+    /// or a shed — just as [`fetch`](Self::fetch) does; a plain absence is `None`,
+    /// not an error.
+    fn fetch_many(&self, ids: &[ObjectId]) -> Result<Vec<Option<Arc<[u8]>>>> {
+        ids.iter().map(|&id| self.fetch(id)).collect()
+    }
 }

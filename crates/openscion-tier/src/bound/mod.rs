@@ -57,6 +57,17 @@ impl<S> BoundedSource<S> {
         self.limit
     }
 
+    /// Takes a slot, or sheds with [`Error::Unavailable`] when `limit` are
+    /// already in flight.
+    fn shed_unless_admitted(&self) -> Result<Permit<'_>> {
+        self.acquire().ok_or_else(|| {
+            Error::Unavailable(format!(
+                "upstream fetch concurrency limit of {} reached",
+                self.limit
+            ))
+        })
+    }
+
     /// Takes a slot if fewer than `limit` are in use, else `None`. Each attempt
     /// to claim a slot is a single compare-and-exchange, so no two callers can
     /// both take the last slot; a lost race re-reads the count and retries.
@@ -85,13 +96,15 @@ impl<S> BoundedSource<S> {
 
 impl<S: ObjectSource> ObjectSource for BoundedSource<S> {
     fn fetch(&self, id: ObjectId) -> Result<Option<Arc<[u8]>>> {
-        let _permit = self.acquire().ok_or_else(|| {
-            Error::Unavailable(format!(
-                "upstream fetch concurrency limit of {} reached",
-                self.limit
-            ))
-        })?;
+        let _permit = self.shed_unless_admitted()?;
         self.inner.fetch(id)
+    }
+
+    fn fetch_many(&self, ids: &[ObjectId]) -> Result<Vec<Option<Arc<[u8]>>>> {
+        // A batch is one upstream operation: it takes a single slot and is shed
+        // or admitted as a whole, never partway.
+        let _permit = self.shed_unless_admitted()?;
+        self.inner.fetch_many(ids)
     }
 }
 

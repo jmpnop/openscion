@@ -40,6 +40,10 @@ const TAG_ERROR: u8 = 4;
 /// Body is a UTF-8 reason. Distinct from [`TAG_ERROR`] so a lower tier can tell
 /// a shed from a failure and back off instead of retrying.
 const TAG_UNAVAILABLE: u8 = 5;
+/// Request: get many objects at once. Body is their 32-byte ids concatenated.
+/// The reply is one response frame per id — `found`/`absent`/`unavailable`/
+/// `error` — in request order.
+const TAG_GET_MANY: u8 = 6;
 
 /// The largest body the codec will read, to bound the memory a single frame can
 /// demand from a peer. Objects beyond this are chunked by the data model.
@@ -60,20 +64,30 @@ where
     Svc: ObjectService + ?Sized,
 {
     while let Some((tag, body)) = read_frame(&mut stream)? {
-        if tag != TAG_GET {
-            return Err(Error::Protocol(format!("unexpected request tag {tag}")));
-        }
-        let id = id_from(&body)?;
-        match service.get(id) {
-            Ok(bytes) => write_frame(&mut stream, TAG_FOUND, &bytes)?,
-            Err(Error::NotFound(_)) => write_frame(&mut stream, TAG_ABSENT, &[])?,
-            Err(Error::Unavailable(reason)) => {
-                write_frame(&mut stream, TAG_UNAVAILABLE, reason.as_bytes())?;
+        match tag {
+            TAG_GET => respond(&mut stream, service.get(id_from(&body)?))?,
+            TAG_GET_MANY => {
+                // One reply per id, in request order; the client reads exactly
+                // this many.
+                for id in ids_from(&body)? {
+                    respond(&mut stream, service.get(id))?;
+                }
             }
-            Err(error) => write_frame(&mut stream, TAG_ERROR, error.to_string().as_bytes())?,
+            _ => return Err(Error::Protocol(format!("unexpected request tag {tag}"))),
         }
     }
     Ok(())
+}
+
+/// Writes the one response frame a `get` outcome maps to: the bytes when found,
+/// an empty `absent`, an `unavailable` shed, or an `error` message.
+fn respond<W: Write>(stream: &mut W, result: Result<Arc<[u8]>>) -> Result<()> {
+    match result {
+        Ok(bytes) => write_frame(stream, TAG_FOUND, &bytes),
+        Err(Error::NotFound(_)) => write_frame(stream, TAG_ABSENT, &[]),
+        Err(Error::Unavailable(reason)) => write_frame(stream, TAG_UNAVAILABLE, reason.as_bytes()),
+        Err(error) => write_frame(stream, TAG_ERROR, error.to_string().as_bytes()),
+    }
 }
 
 /// Accepts connections on `listener` and serves each from `service` on its own
@@ -193,25 +207,40 @@ impl SocketSource {
             .unwrap_or_else(PoisonError::into_inner)
             .push(conn);
     }
+
+    /// Runs `exchange` on a connection and returns a healthy one to the pool.
+    ///
+    /// A pooled connection is tried first; if the peer closed it while it sat
+    /// idle, `exchange` fails at the transport and we retry once on a fresh
+    /// connection — a stale pool costs a retry, not an error. A failure on a
+    /// freshly dialed connection is a real error and is returned. `exchange`
+    /// returns `Err` only when the connection is unusable, so it is never
+    /// returned to the pool after a failure.
+    fn with_connection<T>(&self, exchange: impl Fn(&mut Conn) -> Result<T>) -> Result<T> {
+        if let Some(mut conn) = self.take_idle()
+            && let Ok(value) = exchange(&mut conn)
+        {
+            self.checkin(conn);
+            return Ok(value);
+        }
+        let mut conn = self.dial()?;
+        let value = exchange(&mut conn)?;
+        self.checkin(conn);
+        Ok(value)
+    }
 }
 
 impl ObjectSource for SocketSource {
     fn fetch(&self, id: ObjectId) -> Result<Option<Arc<[u8]>>> {
-        // Reuse a pooled connection when one is idle. If the peer closed it while
-        // it sat idle, the exchange fails at the transport and we retry once on a
-        // fresh connection, so a stale pool costs a retry rather than an error.
-        if let Some(mut conn) = self.take_idle()
-            && let Ok(response) = exchange(&mut conn, id)
-        {
-            self.checkin(conn);
-            return response.outcome();
+        self.with_connection(|conn| exchange(conn, id))?.outcome()
+    }
+
+    fn fetch_many(&self, ids: &[ObjectId]) -> Result<Vec<Option<Arc<[u8]>>>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
         }
-        // No idle connection, or the pooled one was stale: dial fresh. A fresh
-        // connection's failure is a real error and is returned.
-        let mut conn = self.dial()?;
-        let response = exchange(&mut conn, id)?;
-        self.checkin(conn);
-        response.outcome()
+        let responses = self.with_connection(|conn| exchange_many(conn, ids))?;
+        collect_outcomes(responses)
     }
 }
 
@@ -243,6 +272,28 @@ impl Response {
 /// failed or replied malformed, which means it is unusable and must be dropped.
 fn exchange(conn: &mut Conn, id: ObjectId) -> Result<Response> {
     write_frame(conn, TAG_GET, id.as_bytes())?;
+    read_response(conn)
+}
+
+/// Performs one `get-many` exchange on `conn`: writes the ids in one request and
+/// reads one reply per id, in request order.
+///
+/// Returns `Err` only on a transport or protocol failure — a per-id *unavailable*
+/// or *error* is carried in its [`Response`], not a connection fault — so the
+/// connection is healthy whenever this returns `Ok`, even if some ids failed.
+fn exchange_many(conn: &mut Conn, ids: &[ObjectId]) -> Result<Vec<Response>> {
+    let mut body = Vec::with_capacity(ids.len() * ObjectId::LEN);
+    for id in ids {
+        body.extend_from_slice(id.as_bytes());
+    }
+    write_frame(conn, TAG_GET_MANY, &body)?;
+    (0..ids.len()).map(|_| read_response(conn)).collect()
+}
+
+/// Reads one reply frame and maps it to a [`Response`], or to
+/// [`Error::Transport`]/[`Error::Protocol`] when the connection failed or replied
+/// malformed.
+fn read_response(conn: &mut Conn) -> Result<Response> {
     match read_frame(conn)? {
         Some((TAG_FOUND, body)) => Ok(Response::Found(Arc::from(body))),
         Some((TAG_ABSENT, _)) => Ok(Response::Absent),
@@ -257,6 +308,12 @@ fn exchange(conn: &mut Conn, id: ObjectId) -> Result<Response> {
             "the peer closed before replying".to_owned(),
         )),
     }
+}
+
+/// Maps a batch's replies onto fetch results, short-circuiting on the first id
+/// that was unavailable or errored.
+fn collect_outcomes(responses: Vec<Response>) -> Result<Vec<Option<Arc<[u8]>>>> {
+    responses.into_iter().map(Response::outcome).collect()
 }
 
 /// A connection to a server, over whichever transport the endpoint named.
@@ -302,6 +359,22 @@ fn id_from(body: &[u8]) -> Result<ObjectId> {
         .try_into()
         .map_err(|_| Error::Protocol(format!("get body is {} bytes, not an id", body.len())))?;
     Ok(ObjectId::from_bytes(bytes))
+}
+
+/// The ids a `TAG_GET_MANY` body carries — its bytes as a whole number of 32-byte
+/// ids — or [`Error::Protocol`] when its length is not a multiple of an id.
+fn ids_from(body: &[u8]) -> Result<Vec<ObjectId>> {
+    let (ids, rest) = body.as_chunks::<{ ObjectId::LEN }>();
+    if !rest.is_empty() {
+        return Err(Error::Protocol(format!(
+            "get-many body of {} bytes is not a whole number of ids",
+            body.len()
+        )));
+    }
+    Ok(ids
+        .iter()
+        .map(|&bytes| ObjectId::from_bytes(bytes))
+        .collect())
 }
 
 /// Writes one framed message: tag, body length, body — then flushes.

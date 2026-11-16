@@ -205,6 +205,21 @@ This page tracks where things stand.
   unchanged; found/absent/unavailable/upstream replies behave exactly as before.
   No new dependency.
 
+- **Batched object fetch over the framed wire** (phase 7 performance)
+  ([spec](docs/specs/openscion-tier-batched-fetch.md),
+  [plan](docs/plans/openscion-tier-batched-fetch.md)): a tier that needed many
+  objects fetched them one request at a time, so even over a reused connection
+  the round-trip latency serialized across every object. A new `get-many` framed
+  request carries many ids and is answered with one response frame per id in
+  order, reusing the existing found/absent/unavailable/error replies.
+  `ObjectSource` gains `fetch_many` — the default fetches one at a time, so every
+  source keeps working; `SocketSource` answers a batch in one round-trip over one
+  pooled connection, and `BoundedSource` admits or sheds a batch as one upstream
+  operation. `Store::warm` fetches in batches, so warming a snapshot is a handful
+  of round-trips rather than one per id, with its counts, eviction order, and
+  corrupt rejection unchanged. The single-object path is untouched. No new
+  dependency.
+
 ## Next
 
 1. **Network tiers** (phase 7): the distributed `MetadataStore`

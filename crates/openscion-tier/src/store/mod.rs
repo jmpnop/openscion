@@ -31,6 +31,11 @@ use crate::{Error, Result};
 use types::Lru;
 pub use types::Warmed;
 
+/// How many ids [`warm`](Store::warm) fetches in one batched round-trip. Large
+/// enough that a snapshot warms in a few round-trips, small enough to bound the
+/// objects a single batch holds in memory at once.
+const WARM_BATCH: usize = 256;
+
 /// A bounded, read-through cache of immutable objects over a byte backing `B`,
 /// reading through to the tier above `S` on a miss.
 #[derive(Debug)]
@@ -111,7 +116,9 @@ impl<S: ObjectSource, B: ObjectBacking> Store<S, B> {
     ///
     /// `ids` is taken in [`snapshot`](Self::snapshot) order — most-recently-used
     /// first — and fetched least-recent first, so a set larger than the budget
-    /// leaves the most-recently-used resident. Ids already held are skipped.
+    /// leaves the most-recently-used resident. Ids already held are skipped. The
+    /// fetches are batched, so warming a snapshot is a handful of round-trips
+    /// rather than one per id.
     ///
     /// # Errors
     ///
@@ -119,21 +126,30 @@ impl<S: ObjectSource, B: ObjectBacking> Store<S, B> {
     /// upstream or [`Error::Io`] error otherwise; an id no tier holds is counted
     /// in [`Warmed::missing`], not an error.
     pub fn warm(&self, ids: &[ObjectId]) -> Result<Warmed> {
+        // Least-recently-used first, skipping what is already held, so a set
+        // larger than the budget leaves the most-recently-used resident and a
+        // held id is neither re-fetched nor counted.
+        let to_fetch: Vec<ObjectId> = ids
+            .iter()
+            .rev()
+            .copied()
+            .filter(|&id| !self.lock().contains(id))
+            .collect();
+
         let mut fetched = 0;
         let mut missing = 0;
-        for &id in ids.iter().rev() {
-            if self.lock().contains(id) {
-                continue;
-            }
-            match self.upstream.fetch(id)? {
-                Some(bytes) => {
-                    if verify(id, &bytes).is_none() {
-                        return Err(Error::Corrupt { id });
+        for chunk in to_fetch.chunks(WARM_BATCH) {
+            for (&id, bytes) in chunk.iter().zip(self.upstream.fetch_many(chunk)?) {
+                match bytes {
+                    Some(bytes) => {
+                        if verify(id, &bytes).is_none() {
+                            return Err(Error::Corrupt { id });
+                        }
+                        self.store(id, &bytes)?;
+                        fetched += 1;
                     }
-                    self.store(id, &bytes)?;
-                    fetched += 1;
+                    None => missing += 1,
                 }
-                None => missing += 1,
             }
         }
         Ok(Warmed { fetched, missing })

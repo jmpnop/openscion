@@ -23,6 +23,7 @@ struct Source {
 struct SourceInner {
     objects: Mutex<HashMap<ObjectId, Arc<[u8]>>>,
     fetches: AtomicUsize,
+    batches: AtomicUsize,
 }
 
 impl Source {
@@ -56,12 +57,23 @@ impl Source {
     fn fetches(&self) -> usize {
         self.inner.fetches.load(Ordering::SeqCst)
     }
+
+    fn batches(&self) -> usize {
+        self.inner.batches.load(Ordering::SeqCst)
+    }
 }
 
 impl ObjectSource for Source {
     fn fetch(&self, id: ObjectId) -> crate::Result<Option<Arc<[u8]>>> {
         self.inner.fetches.fetch_add(1, Ordering::SeqCst);
         Ok(self.inner.objects.lock().unwrap().get(&id).cloned())
+    }
+
+    fn fetch_many(&self, ids: &[ObjectId]) -> crate::Result<Vec<Option<Arc<[u8]>>>> {
+        // Count batched calls, then fetch each id (so the per-id fetch count is
+        // unchanged); a real networked source would answer in one round-trip.
+        self.inner.batches.fetch_add(1, Ordering::SeqCst);
+        ids.iter().map(|&id| self.fetch(id)).collect()
     }
 }
 
@@ -188,6 +200,20 @@ fn warm_counts_ids_no_tier_holds_and_skips_those_already_held() {
     assert_eq!(warmed.missing, 1, "absent is counted missing");
     // Only `absent` was fetched (a was skipped), so one more fetch than before.
     assert_eq!(source.fetches(), fetched_before + 1);
+}
+
+#[test]
+fn warm_fetches_in_batches_not_one_at_a_time() {
+    let source = Source::new();
+    let a = source.add(b"a1");
+    let b = source.add(b"b2");
+    let c = source.add(b"c3");
+    let store = store("warm-batched", source.clone(), 1 << 20);
+
+    let warmed = store.warm(&[a, b, c]).unwrap();
+    assert_eq!(warmed.fetched, 3);
+    // Three ids well under the batch size: one batched round-trip, not three.
+    assert_eq!(source.batches(), 1);
 }
 
 #[test]

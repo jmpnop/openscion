@@ -62,3 +62,6 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a test-first sample
   pool and reuse the framed client's connections across fetches, with a one-shot
   retry for a stale pooled connection, so bulk reads stop paying a connect per
   object (phase 7 performance).
+- [`openscion-tier-batched-fetch.md`](openscion-tier-batched-fetch.md) — a
+  `get-many` framed request and `ObjectSource::fetch_many`, so a tier fetches many
+  objects in one round-trip; `Store::warm` uses it (phase 7 performance).

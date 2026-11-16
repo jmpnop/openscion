@@ -78,6 +78,76 @@ fn serves_found_and_absent_objects_over_tcp() {
 }
 
 #[test]
+fn fetches_a_batch_of_found_and_absent_objects() {
+    let mem = MemorySource::new();
+    let alpha = mem.add(b"alpha");
+    let gamma = mem.add(b"gamma");
+    let absent = blob_id(b"missing");
+    let addr = serve(store("batch", mem));
+
+    let client = SocketSource::tcp(addr);
+    // One request, three replies in order: found, absent, found.
+    let results = client.fetch_many(&[alpha, absent, gamma]).unwrap();
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].as_deref(), Some(&b"alpha"[..]));
+    assert_eq!(results[1], None);
+    assert_eq!(results[2].as_deref(), Some(&b"gamma"[..]));
+    // An empty batch needs no round-trip.
+    assert_eq!(client.fetch_many(&[]).unwrap().len(), 0);
+}
+
+#[test]
+fn ids_from_requires_a_whole_number_of_ids() {
+    use super::ids_from;
+
+    assert_eq!(ids_from(&[]).unwrap().len(), 0);
+    assert_eq!(ids_from(&[7u8; 64]).unwrap().len(), 2);
+    // 40 bytes is neither one id nor two: a protocol error.
+    assert!(matches!(
+        ids_from(&[0u8; 40]),
+        Err(crate::Error::Protocol(_))
+    ));
+}
+
+#[test]
+fn a_batch_reuses_a_pooled_connection() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::serve_connection;
+
+    let mem = MemorySource::new();
+    let id = mem.add(b"batched");
+    let served = store("batch-reuse", mem);
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let accepts = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&accepts);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { break };
+            counter.fetch_add(1, Ordering::SeqCst);
+            let served = Arc::clone(&served);
+            std::thread::spawn(move || {
+                let _ = serve_connection(stream, &*served);
+            });
+        }
+    });
+
+    let client = SocketSource::tcp(addr);
+    assert_eq!(
+        client.fetch_many(&[id]).unwrap()[0].as_deref(),
+        Some(&b"batched"[..])
+    );
+    assert_eq!(
+        client.fetch_many(&[id]).unwrap()[0].as_deref(),
+        Some(&b"batched"[..])
+    );
+    // Two batches reused one connection.
+    assert_eq!(accepts.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn reuses_a_pooled_connection_across_fetches() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
