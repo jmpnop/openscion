@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use openscion_tier::{BoundListener, BoundedSource, SocketSource, Store};
+use openscion_tier::{BoundListener, BoundedSource, Forwarding, SocketSource, Store};
 
 use crate::backing::MemoryBacking;
 use crate::config::CacheConfig;
@@ -26,6 +26,7 @@ pub type CacheStore<S> = Store<S, MemoryBacking>;
 #[derive(Debug)]
 pub struct RegionalCache {
     store: Arc<CacheStore<BoundedSource<SocketSource>>>,
+    upstream: SocketSource,
     listener: BoundListener,
     listening: String,
 }
@@ -51,6 +52,9 @@ impl RegionalCache {
         let listening = listener.listening().to_owned();
         Ok(Self {
             store,
+            // A second dial of the same tier above, for forwarding non-object
+            // RPCs; the store's own dial is bounded and object-only.
+            upstream: config.upstream.dial(),
             listener,
             listening,
         })
@@ -75,14 +79,19 @@ impl RegionalCache {
         use signal_hook::iterator::Signals;
 
         let Self {
-            store, listener, ..
+            store,
+            upstream,
+            listener,
+            ..
         } = self;
 
         // The accept loop blocks forever, so it runs on its own thread and
         // shutdown is driven by a signal on this one. The cache keeps no state,
-        // so there is nothing to flush when the signal arrives.
+        // so there is nothing to flush when the signal arrives. It serves
+        // objects from its store and forwards non-object RPCs to the tier above.
+        let serving = Arc::new(Forwarding::new(store, Some(upstream)));
         std::thread::spawn(move || {
-            let _ = listener.serve(&store);
+            let _ = listener.serve(&serving);
         });
 
         let mut signals = Signals::new([SIGINT, SIGTERM]).map_err(Error::Transport)?;
@@ -101,9 +110,13 @@ impl RegionalCache {
     #[cfg(not(unix))]
     pub fn serve(self) -> Result<()> {
         let Self {
-            store, listener, ..
+            store,
+            upstream,
+            listener,
+            ..
         } = self;
-        listener.serve(&store)
+        let serving = Arc::new(Forwarding::new(store, Some(upstream)));
+        listener.serve(&serving)
     }
 }
 

@@ -19,6 +19,7 @@
 | [`Endpoint::bind`: one listener for every tier](openscion-tier-endpoint-bind.md) | Accepted |
 | [Connection pooling for the framed client](openscion-tier-connection-pooling.md) | Accepted |
 | [Batched object fetch over the framed wire](openscion-tier-batched-fetch.md) | Accepted |
+| [Forwarding non-object RPCs over the framed wire](openscion-tier-rpc-forwarding.md) | Accepted |
 
 Specifications define what the system must do before implementation details
 take over. Create one for behavior that changes a public API, crosses module

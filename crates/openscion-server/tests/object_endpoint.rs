@@ -67,3 +67,43 @@ async fn an_object_uploaded_over_http_is_served_over_the_framed_wire() {
     stop.send(()).unwrap();
     serving.await.unwrap();
 }
+
+#[tokio::test]
+async fn a_forwarded_rpc_is_answered_by_the_server_over_the_framed_wire() {
+    use openscion_core::rpc::{Request, Response};
+
+    // A server with a framed endpoint, in memory.
+    let config = ServerConfig::new("127.0.0.1:0".parse().unwrap())
+        .with_object_listen(Endpoint::Tcp("127.0.0.1:0".parse().unwrap()));
+    let server = Server::bind(&config).await.unwrap();
+    let object = server.object_addr().unwrap().to_owned();
+
+    let (stop, stopped) = oneshot::channel::<()>();
+    let serving = tokio::spawn(async move {
+        server
+            .serve(async {
+                let _ = stopped.await;
+            })
+            .await
+            .unwrap();
+    });
+
+    // A tier client sends a non-object RPC over the framed wire; the server
+    // answers it from its engine. A missing ref comes back as a NotFound error.
+    let endpoint: Endpoint = object.parse().unwrap();
+    let response = tokio::task::spawn_blocking(move || {
+        endpoint
+            .dial()
+            .rpc(&Request::GetRef("refs/heads/nope".to_owned()))
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    match response {
+        Response::Error(body) => assert_eq!(body.code, "NotFound"),
+        other => panic!("expected a NotFound error, got {other:?}"),
+    }
+
+    stop.send(()).unwrap();
+    serving.await.unwrap();
+}

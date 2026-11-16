@@ -220,6 +220,24 @@ This page tracks where things stand.
   corrupt rejection unchanged. The single-object path is untouched. No new
   dependency.
 
+- **Forwarding non-object RPCs over the framed wire** (phase 7)
+  ([spec](docs/specs/openscion-tier-rpc-forwarding.md),
+  [plan](docs/plans/openscion-tier-rpc-forwarding.md)): the framed wire carried
+  only object reads, so a lower tier could not forward the mutable queries the
+  architecture routes to the server. A forwarded-RPC envelope
+  (`openscion_core::rpc` — one `Request`/`Response` pair over every non-object
+  operation, an engine failure carried as `Response::Error` with the HTTP code)
+  now crosses the wire as a postcard-encoded `rpc` frame. `ObjectService` gains a
+  declining `rpc` default; the server (`RepositoryObjects`) overrides it to
+  dispatch all fourteen operations — create/read changeset; stat, tree, file,
+  diff, log, ancestor, merge-base; read/update ref; rebase, revert, land — each
+  to the engine call its HTTP handler makes, and a new `Forwarding` service lets
+  the daemon and the cache serve objects from their store while relaying RPCs to
+  the tier above (a detached tier declines). The object path and all existing
+  behaviour are unchanged. The one new dependency is `postcard` (pure-Rust binary
+  serde) in the tier crate. The client still calls the server over HTTP; moving
+  it onto this path is a later change.
+
 ## Next
 
 1. **Network tiers** (phase 7): the distributed `MetadataStore`

@@ -12,7 +12,9 @@ use std::sync::Arc;
 
 use openscion_core::ObjectId;
 
-use openscion_tier::{BoundListener, BoundedSource, ObjectSource, SocketSource, Warmed};
+use openscion_tier::{
+    BoundListener, BoundedSource, Forwarding, ObjectSource, SocketSource, Warmed,
+};
 
 use crate::config::{DaemonConfig, Endpoint};
 use crate::snapshot;
@@ -54,6 +56,7 @@ impl ObjectSource for Upstream {
 #[derive(Debug)]
 pub struct Daemon {
     store: Arc<NodeStore<BoundedSource<Upstream>>>,
+    upstream: Option<SocketSource>,
     listener: BoundListener,
     listening: String,
     snapshot_path: Option<PathBuf>,
@@ -92,6 +95,9 @@ impl Daemon {
         let listening = listener.listening().to_owned();
         Ok(Self {
             store,
+            // A dial of the tier above for forwarding non-object RPCs, or `None`
+            // when detached — a leaf daemon forwards nowhere and declines them.
+            upstream: config.upstream.as_ref().map(Endpoint::dial),
             listener,
             listening,
             snapshot_path: config.snapshot.clone(),
@@ -126,14 +132,17 @@ impl Daemon {
 
         let Self {
             store,
+            upstream,
             listener,
             snapshot_path,
             ..
         } = self;
 
         // The accept loop blocks forever, so it runs on its own thread and
-        // shutdown is driven by a signal on this one.
-        let serving = Arc::clone(&store);
+        // shutdown is driven by a signal on this one. It serves objects from the
+        // node store and forwards non-object RPCs to the tier above; the store
+        // is kept here to persist the snapshot on shutdown.
+        let serving = Arc::new(Forwarding::new(Arc::clone(&store), upstream));
         std::thread::spawn(move || {
             let _ = listener.serve(&serving);
         });
@@ -158,9 +167,13 @@ impl Daemon {
     #[cfg(not(unix))]
     pub fn serve(self) -> Result<()> {
         let Self {
-            store, listener, ..
+            store,
+            upstream,
+            listener,
+            ..
         } = self;
-        listener.serve(&store)
+        let serving = Arc::new(Forwarding::new(store, upstream));
+        listener.serve(&serving)
     }
 }
 

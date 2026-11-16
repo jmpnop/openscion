@@ -65,3 +65,7 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a test-first sample
 - [`openscion-tier-batched-fetch.md`](openscion-tier-batched-fetch.md) — a
   `get-many` framed request and `ObjectSource::fetch_many`, so a tier fetches many
   objects in one round-trip; `Store::warm` uses it (phase 7 performance).
+- [`openscion-tier-rpc-forwarding.md`](openscion-tier-rpc-forwarding.md) — the
+  forwarded-RPC envelope (`openscion_core::rpc`), a postcard-framed `rpc` request,
+  the server answering all 14 non-object operations, and a `Forwarding` service
+  so the daemon and cache relay mutable queries upstream (phase 7).
