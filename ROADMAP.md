@@ -192,6 +192,19 @@ This page tracks where things stand.
   integration tests, stays green — and resolves the deferred cleanup noted with
   the server's object endpoint. No new dependency.
 
+- **Connection pooling for the framed client** (phase 7 performance)
+  ([spec](docs/specs/openscion-tier-connection-pooling.md),
+  [plan](docs/plans/openscion-tier-connection-pooling.md)): `SocketSource` opened
+  a fresh connection on every fetch, so a clone or checkout reading thousands of
+  objects through the daemon paid a TCP/Unix connect per object. It now pools and
+  reuses connections across fetches behind a shared mutex, retrying once on a
+  fresh connection when a pooled one was closed while idle, so a stale pool costs
+  a retry rather than an error. The pool is self-bounding — a connection enters
+  it only after being checked out, so it never exceeds the peak concurrent
+  fetches the `BoundedSource` above already caps. The wire and every caller are
+  unchanged; found/absent/unavailable/upstream replies behave exactly as before.
+  No new dependency.
+
 ## Next
 
 1. **Network tiers** (phase 7): the distributed `MetadataStore`

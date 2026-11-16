@@ -17,7 +17,7 @@
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -120,11 +120,17 @@ where
 /// A client for a tier's object RPCs, reachable over a Unix socket or TCP.
 ///
 /// It implements [`ObjectSource`], so a store on one tier can use a server on
-/// the tier above as its upstream — tiers compose over the same wire. Each
-/// fetch opens a fresh connection.
+/// the tier above as its upstream — tiers compose over the same wire.
+///
+/// Connections are pooled and reused across fetches rather than dialed per
+/// fetch, so a burst of reads amortizes one connect over many requests; a pooled
+/// connection the peer closed while idle is retried once on a fresh one. The
+/// pool is shared across clones, so the one source a store holds reuses
+/// connections no matter how many threads fetch through it.
 #[derive(Debug, Clone)]
 pub struct SocketSource {
     endpoint: Endpoint,
+    idle: Arc<Mutex<Vec<Conn>>>,
 }
 
 /// Where a [`SocketSource`] dials.
@@ -139,21 +145,25 @@ impl SocketSource {
     /// A client that dials the server listening at `addr` over TCP.
     #[must_use]
     pub fn tcp(addr: SocketAddr) -> Self {
-        Self {
-            endpoint: Endpoint::Tcp(addr),
-        }
+        Self::new(Endpoint::Tcp(addr))
     }
 
     /// A client that dials the server listening on the Unix socket at `path`.
     #[cfg(unix)]
     #[must_use]
     pub fn unix(path: impl Into<PathBuf>) -> Self {
+        Self::new(Endpoint::Unix(path.into()))
+    }
+
+    /// A client over `endpoint` with an empty connection pool.
+    fn new(endpoint: Endpoint) -> Self {
         Self {
-            endpoint: Endpoint::Unix(path.into()),
+            endpoint,
+            idle: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
-    /// Opens a connection to the endpoint.
+    /// Opens a fresh connection to the endpoint.
     fn dial(&self) -> Result<Conn> {
         match &self.endpoint {
             Endpoint::Tcp(addr) => Ok(Conn::Tcp(
@@ -165,30 +175,92 @@ impl SocketSource {
             )),
         }
     }
+
+    /// Takes an idle connection from the pool, if any.
+    fn take_idle(&self) -> Option<Conn> {
+        self.idle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pop()
+    }
+
+    /// Returns a healthy connection to the pool for the next fetch. The pool is
+    /// self-bounding: a connection enters it only after being checked out, so the
+    /// idle count never exceeds the peak number of concurrent fetches.
+    fn checkin(&self, conn: Conn) {
+        self.idle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(conn);
+    }
 }
 
 impl ObjectSource for SocketSource {
     fn fetch(&self, id: ObjectId) -> Result<Option<Arc<[u8]>>> {
+        // Reuse a pooled connection when one is idle. If the peer closed it while
+        // it sat idle, the exchange fails at the transport and we retry once on a
+        // fresh connection, so a stale pool costs a retry rather than an error.
+        if let Some(mut conn) = self.take_idle()
+            && let Ok(response) = exchange(&mut conn, id)
+        {
+            self.checkin(conn);
+            return response.outcome();
+        }
+        // No idle connection, or the pooled one was stale: dial fresh. A fresh
+        // connection's failure is a real error and is returned.
         let mut conn = self.dial()?;
-        write_frame(&mut conn, TAG_GET, id.as_bytes())?;
-        match read_frame(&mut conn)? {
-            Some((TAG_FOUND, body)) => Ok(Some(Arc::from(body))),
-            Some((TAG_ABSENT, _)) => Ok(None),
-            Some((TAG_UNAVAILABLE, reason)) => Err(Error::Unavailable(
-                String::from_utf8_lossy(&reason).into_owned(),
-            )),
-            Some((TAG_ERROR, message)) => Err(Error::Upstream(
-                String::from_utf8_lossy(&message).into_owned(),
-            )),
-            Some((tag, _)) => Err(Error::Protocol(format!("unexpected response tag {tag}"))),
-            None => Err(Error::Protocol(
-                "the peer closed before replying".to_owned(),
-            )),
+        let response = exchange(&mut conn, id)?;
+        self.checkin(conn);
+        response.outcome()
+    }
+}
+
+/// A well-formed reply to a `get`, before it is mapped onto the caller's result.
+/// A connection that produced one of these is healthy and can be reused.
+enum Response {
+    Found(Arc<[u8]>),
+    Absent,
+    Unavailable(String),
+    Upstream(String),
+}
+
+impl Response {
+    /// Maps a reply onto an [`ObjectSource::fetch`] result.
+    fn outcome(self) -> Result<Option<Arc<[u8]>>> {
+        match self {
+            Response::Found(bytes) => Ok(Some(bytes)),
+            Response::Absent => Ok(None),
+            Response::Unavailable(reason) => Err(Error::Unavailable(reason)),
+            Response::Upstream(message) => Err(Error::Upstream(message)),
         }
     }
 }
 
+/// Performs one `get` exchange on `conn`: writes the request, reads the reply.
+///
+/// Returns the [`Response`] on a complete exchange — the connection is then
+/// healthy — and [`Error::Transport`]/[`Error::Protocol`] when the connection
+/// failed or replied malformed, which means it is unusable and must be dropped.
+fn exchange(conn: &mut Conn, id: ObjectId) -> Result<Response> {
+    write_frame(conn, TAG_GET, id.as_bytes())?;
+    match read_frame(conn)? {
+        Some((TAG_FOUND, body)) => Ok(Response::Found(Arc::from(body))),
+        Some((TAG_ABSENT, _)) => Ok(Response::Absent),
+        Some((TAG_UNAVAILABLE, reason)) => Ok(Response::Unavailable(
+            String::from_utf8_lossy(&reason).into_owned(),
+        )),
+        Some((TAG_ERROR, message)) => Ok(Response::Upstream(
+            String::from_utf8_lossy(&message).into_owned(),
+        )),
+        Some((tag, _)) => Err(Error::Protocol(format!("unexpected response tag {tag}"))),
+        None => Err(Error::Protocol(
+            "the peer closed before replying".to_owned(),
+        )),
+    }
+}
+
 /// A connection to a server, over whichever transport the endpoint named.
+#[derive(Debug)]
 enum Conn {
     Tcp(TcpStream),
     #[cfg(unix)]

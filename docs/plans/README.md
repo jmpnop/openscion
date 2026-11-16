@@ -58,3 +58,7 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a test-first sample
   per-tier listener plumbing into `Endpoint::bind -> BoundListener`, symmetric
   with `Endpoint::dial`, and migrate the daemon, cache, and server to it
   (phase 7 cleanup).
+- [`openscion-tier-connection-pooling.md`](openscion-tier-connection-pooling.md) —
+  pool and reuse the framed client's connections across fetches, with a one-shot
+  retry for a stale pooled connection, so bulk reads stop paying a connect per
+  object (phase 7 performance).

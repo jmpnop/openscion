@@ -17,6 +17,7 @@
 | [Regional object cache (`openscion-cache`)](openscion-cache.md) | Accepted |
 | [The server's framed object endpoint](openscion-server-object-endpoint.md) | Accepted |
 | [`Endpoint::bind`: one listener for every tier](openscion-tier-endpoint-bind.md) | Accepted |
+| [Connection pooling for the framed client](openscion-tier-connection-pooling.md) | Accepted |
 
 Specifications define what the system must do before implementation details
 take over. Create one for behavior that changes a public API, crosses module

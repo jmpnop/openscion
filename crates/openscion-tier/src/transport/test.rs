@@ -78,6 +78,94 @@ fn serves_found_and_absent_objects_over_tcp() {
 }
 
 #[test]
+fn reuses_a_pooled_connection_across_fetches() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::serve_connection;
+
+    let mem = MemorySource::new();
+    let id = mem.add(b"pooled object");
+    let served = store("pool-reuse", mem);
+
+    // A server that counts accepted connections and serves each one fully.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let accepts = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&accepts);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { break };
+            counter.fetch_add(1, Ordering::SeqCst);
+            let served = Arc::clone(&served);
+            std::thread::spawn(move || {
+                let _ = serve_connection(stream, &*served);
+            });
+        }
+    });
+
+    let client = SocketSource::tcp(addr);
+    for _ in 0..3 {
+        assert_eq!(&*client.fetch(id).unwrap().unwrap(), b"pooled object");
+    }
+    // Three fetches reused one pooled connection: the server accepted once.
+    assert_eq!(accepts.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_stale_pooled_connection_is_retried() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::{TAG_FOUND, read_frame, write_frame};
+
+    // A server that replies to one request then closes the connection, as a
+    // server dropping an idle connection would. It keeps accepting new ones.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let accepts = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&accepts);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            counter.fetch_add(1, Ordering::SeqCst);
+            if read_frame(&mut stream).ok().flatten().is_some() {
+                let _ = write_frame(&mut stream, TAG_FOUND, b"after stale");
+            }
+            // `stream` drops here: the connection closes after its one reply.
+        }
+    });
+
+    let client = SocketSource::tcp(addr);
+    let id = blob_id(b"anything");
+    // The first fetch dials and pools the connection; the server has closed it.
+    assert_eq!(&*client.fetch(id).unwrap().unwrap(), b"after stale");
+    // The second takes the stale pooled connection, fails, and retries fresh.
+    assert_eq!(&*client.fetch(id).unwrap().unwrap(), b"after stale");
+    // One accept per fetch: the second did not silently fail on the stale one.
+    assert_eq!(accepts.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn concurrent_fetches_through_a_shared_source_all_succeed() {
+    let mem = MemorySource::new();
+    let id = mem.add(b"shared object");
+    let addr = serve(store("pool-concurrent", mem));
+
+    // One source, shared by value across threads; its pool is shared behind an
+    // Arc, so concurrent fetches check connections in and out without races.
+    let client = SocketSource::tcp(addr);
+    let mut handles = Vec::new();
+    for _ in 0..8 {
+        let client = client.clone();
+        handles.push(std::thread::spawn(move || {
+            client.fetch(id).unwrap().unwrap()
+        }));
+    }
+    for handle in handles {
+        assert_eq!(&*handle.join().unwrap(), b"shared object");
+    }
+}
+
+#[test]
 fn serves_a_bare_object_service_not_only_a_store() {
     // The transport serves any ObjectService, not only a cache Store: an origin
     // that holds authoritative objects — the server — serves the same wire from
