@@ -16,6 +16,9 @@ publish = false
 openscion-core = { workspace = true }
 # The crate-wide error type.
 thiserror = { workspace = true }
+# Encodes the forwarded-RPC envelope (openscion_core::rpc) on the framed wire as
+# a compact binary form, so a mutable query crosses between tiers without JSON.
+postcard = { workspace = true }
 
 [lints]
 workspace = true

@@ -39,6 +39,9 @@ serde = { version = "1", features = ["derive"] }
 # The protocol's tests and doc examples pin each payload's JSON form, and the
 # server and CLI encode and decode HTTP bodies with it.
 serde_json = "1"
+# The tier transport encodes the forwarded-RPC envelope on the framed wire with
+# this compact binary serde format — pure Rust, no transport or runtime.
+postcard = { version = "1", default-features = false, features = ["alloc"] }
 # The engine, so the server and CLI crates name the same types the library does.
 openscion-core = { path = "crates/openscion-core", version = "0.2.1" }
 # The shared tier layer: the `ObjectSource`/`ObjectBacking` ports, the

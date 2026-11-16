@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::os::unix::net::{UnixListener, UnixStream};
 
 use openscion_core::ObjectId;
+use openscion_core::rpc::{Request, Response as RpcResponse};
 
 use crate::service::ObjectService;
 use crate::source::ObjectSource;
@@ -44,6 +45,12 @@ const TAG_UNAVAILABLE: u8 = 5;
 /// The reply is one response frame per id — `found`/`absent`/`unavailable`/
 /// `error` — in request order.
 const TAG_GET_MANY: u8 = 6;
+/// Request: a forwarded non-object RPC. Body is a postcard-encoded
+/// [`Request`](openscion_core::rpc::Request); the reply is [`TAG_RPC_REPLY`].
+const TAG_RPC: u8 = 7;
+/// Response: the answer to a [`TAG_RPC`] request. Body is a postcard-encoded
+/// [`Response`](openscion_core::rpc::Response), including its error variant.
+const TAG_RPC_REPLY: u8 = 8;
 
 /// The largest body the codec will read, to bound the memory a single frame can
 /// demand from a peer. Objects beyond this are chunked by the data model.
@@ -72,6 +79,15 @@ where
                 for id in ids_from(&body)? {
                     respond(&mut stream, service.get(id))?;
                 }
+            }
+            TAG_RPC => {
+                let request: Request = postcard::from_bytes(&body).map_err(|error| {
+                    Error::Protocol(format!("decoding a framed rpc failed: {error}"))
+                })?;
+                let reply = postcard::to_allocvec(&service.rpc(request)?).map_err(|error| {
+                    Error::Protocol(format!("encoding a framed rpc failed: {error}"))
+                })?;
+                write_frame(&mut stream, TAG_RPC_REPLY, &reply)?;
             }
             _ => return Err(Error::Protocol(format!("unexpected request tag {tag}"))),
         }
@@ -228,6 +244,21 @@ impl SocketSource {
         self.checkin(conn);
         Ok(value)
     }
+
+    /// Sends a forwarded non-object [`Request`] and returns the server's
+    /// [`Response`](openscion_core::rpc::Response), over a pooled connection —
+    /// the client side of the mutable queries a lower tier forwards upstream.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Transport`]/[`Error::Protocol`] when the connection fails
+    /// or replies malformed; an engine failure is carried in the response's error
+    /// variant, returned as `Ok`.
+    pub fn rpc(&self, request: &Request) -> Result<RpcResponse> {
+        let body = postcard::to_allocvec(request)
+            .map_err(|error| Error::Protocol(format!("encoding a framed rpc failed: {error}")))?;
+        self.with_connection(|conn| rpc_exchange(conn, &body))
+    }
 }
 
 impl ObjectSource for SocketSource {
@@ -314,6 +345,24 @@ fn read_response(conn: &mut Conn) -> Result<Response> {
 /// that was unavailable or errored.
 fn collect_outcomes(responses: Vec<Response>) -> Result<Vec<Option<Arc<[u8]>>>> {
     responses.into_iter().map(Response::outcome).collect()
+}
+
+/// Performs one forwarded-RPC exchange on `conn`: writes the encoded request and
+/// reads the decoded reply.
+///
+/// Returns `Err` only on a transport or protocol failure — an engine failure is
+/// carried in the decoded response's error variant — so the connection is
+/// healthy whenever this returns `Ok`.
+fn rpc_exchange(conn: &mut Conn, request_body: &[u8]) -> Result<RpcResponse> {
+    write_frame(conn, TAG_RPC, request_body)?;
+    match read_frame(conn)? {
+        Some((TAG_RPC_REPLY, body)) => postcard::from_bytes(&body)
+            .map_err(|error| Error::Protocol(format!("decoding a framed rpc failed: {error}"))),
+        Some((tag, _)) => Err(Error::Protocol(format!("unexpected response tag {tag}"))),
+        None => Err(Error::Protocol(
+            "the peer closed before replying".to_owned(),
+        )),
+    }
 }
 
 /// A connection to a server, over whichever transport the endpoint named.

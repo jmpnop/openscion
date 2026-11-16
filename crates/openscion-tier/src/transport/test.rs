@@ -78,6 +78,110 @@ fn serves_found_and_absent_objects_over_tcp() {
 }
 
 #[test]
+fn a_tier_forwards_a_non_object_rpc_to_the_tier_above() {
+    use openscion_core::AncestorResult;
+    use openscion_core::rpc::{Request, Response};
+
+    use crate::{Forwarding, ObjectService};
+
+    // The origin — the server's role — answers RPCs with a fixed typed response.
+    struct Origin;
+    impl ObjectService for Origin {
+        fn get(&self, id: openscion_core::ObjectId) -> crate::Result<Arc<[u8]>> {
+            Err(crate::Error::NotFound(id))
+        }
+        fn rpc(&self, _request: Request) -> crate::Result<Response> {
+            Ok(Response::Ancestor(AncestorResult::new(true)))
+        }
+    }
+    let origin = Arc::new(Origin);
+    let origin_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin_addr = origin_listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        let _ = serve_tcp(&origin_listener, &origin);
+    });
+
+    // A forwarding tier serves objects from a store and relays RPCs to origin.
+    let forwarding = Arc::new(Forwarding::new(
+        store("forwarding", MemorySource::new()),
+        Some(SocketSource::tcp(origin_addr)),
+    ));
+    let tier_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let tier_addr = tier_listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        let _ = serve_tcp(&tier_listener, &forwarding);
+    });
+
+    // A client talks only to the forwarding tier; its RPC reaches the origin and
+    // the answer is relayed back.
+    let client = SocketSource::tcp(tier_addr);
+    assert_eq!(
+        client.rpc(&Request::GetRef("x".to_owned())).unwrap(),
+        Response::Ancestor(AncestorResult::new(true))
+    );
+}
+
+#[test]
+fn a_forwarding_tier_with_no_upstream_declines() {
+    use openscion_core::rpc::{Request, Response};
+
+    use crate::{Forwarding, ObjectService};
+
+    let forwarding = Forwarding::new(store("forwarding-detached", MemorySource::new()), None);
+    match forwarding.rpc(Request::GetRef("x".to_owned())).unwrap() {
+        Response::Error(body) => assert_eq!(body.code, "Unavailable"),
+        other => panic!("expected an unavailable error, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_rpc_to_a_tier_that_declines_returns_an_unsupported_error() {
+    use openscion_core::rpc::{Request, Response};
+
+    // A plain Store serves objects but declines forwarded RPCs by default.
+    let addr = serve(store("rpc-decline", MemorySource::new()));
+    let client = SocketSource::tcp(addr);
+    match client
+        .rpc(&Request::GetRef("refs/heads/main".to_owned()))
+        .unwrap()
+    {
+        Response::Error(body) => assert_eq!(body.code, "Unsupported"),
+        other => panic!("expected an error response, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_rpc_round_trips_a_typed_response_over_the_wire() {
+    use openscion_core::AncestorResult;
+    use openscion_core::rpc::{Request, Response};
+
+    use crate::ObjectService;
+
+    // A service that answers any RPC with a fixed typed response, to prove the
+    // envelope round-trips over the framed wire.
+    struct Yes;
+    impl ObjectService for Yes {
+        fn get(&self, id: openscion_core::ObjectId) -> crate::Result<Arc<[u8]>> {
+            Err(crate::Error::NotFound(id))
+        }
+        fn rpc(&self, _request: Request) -> crate::Result<Response> {
+            Ok(Response::Ancestor(AncestorResult::new(true)))
+        }
+    }
+
+    let service = Arc::new(Yes);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        let _ = serve_tcp(&listener, &service);
+    });
+
+    let client = SocketSource::tcp(addr);
+    let response = client.rpc(&Request::GetRef("anything".to_owned())).unwrap();
+    assert_eq!(response, Response::Ancestor(AncestorResult::new(true)));
+}
+
+#[test]
 fn fetches_a_batch_of_found_and_absent_objects() {
     let mem = MemorySource::new();
     let alpha = mem.add(b"alpha");

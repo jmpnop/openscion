@@ -75,7 +75,7 @@ pub use backing::{ObjectBacking, ObjectCache};
 pub use bound::BoundedSource;
 pub use endpoint::{BoundListener, Endpoint, EndpointParseError};
 pub use error::{Error, Result};
-pub use service::ObjectService;
+pub use service::{Forwarding, ObjectService};
 pub use source::ObjectSource;
 pub use store::{Store, Warmed};
 #[cfg(unix)]
