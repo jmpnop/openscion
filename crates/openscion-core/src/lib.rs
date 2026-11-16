@@ -93,5 +93,5 @@ pub use openscion_proto::{
     FetchObjects, LandRequest, LandResult, LogPage, LogRequest, MergeBaseQuery, MergeBaseResult,
     ObjectId, ObjectKind, PROTOCOL_VERSION, ParseIdError, PathError, RebaseRequest, RebaseResult,
     RefValue, RepoPath, RevertRequest, ServerInfo, StatResult, StoredObjects, TreeEntry,
-    TreeListing, UpdateRef, is_compatible, server, version,
+    TreeListing, UpdateRef, is_compatible, rpc, server, version,
 };

@@ -66,6 +66,7 @@ pub mod object;
 pub mod path;
 pub mod query;
 pub mod refs;
+pub mod rpc;
 pub mod server;
 pub mod transfer;
 pub mod tree;
