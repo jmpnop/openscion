@@ -17,7 +17,9 @@ use openscion_core::{
 };
 use tokio::net::TcpListener;
 
-use crate::object::{self, RepositoryObjects, bind_object_listener, serve_objects};
+use openscion_tier::BoundListener;
+
+use crate::object::RepositoryObjects;
 use crate::{Error, Result, ServerConfig, SharedRepository, api};
 
 /// Builds the server's HTTP routes over `repository`.
@@ -58,7 +60,7 @@ pub struct Server {
     listener: TcpListener,
     local_addr: SocketAddr,
     repository: SharedRepository,
-    object: Option<object::Listener>,
+    object: Option<BoundListener>,
     object_listening: Option<String>,
 }
 
@@ -83,7 +85,11 @@ impl Server {
         let local_addr = listener.local_addr().map_err(bind_error)?;
         let (object, object_listening) = match &config.object_listen {
             Some(endpoint) => {
-                let (listener, listening) = bind_object_listener(endpoint)?;
+                let listener = endpoint.bind().map_err(|source| Error::ObjectListen {
+                    endpoint: endpoint.clone(),
+                    source,
+                })?;
+                let listening = listener.listening().to_owned();
                 (Some(listener), Some(listening))
             }
             None => (None, None),
@@ -120,8 +126,13 @@ impl Server {
     /// Returns [`Error::Serve`] when the listener fails.
     pub async fn serve(self, shutdown: impl Future<Output = ()> + Send + 'static) -> Result<()> {
         if let Some(listener) = self.object {
+            // The tier transport is a blocking accept loop, so it runs on its
+            // own thread beside the async HTTP server, serving the same
+            // repository for the life of the process.
             let service = Arc::new(RepositoryObjects::new(Arc::clone(&self.repository)));
-            serve_objects(listener, service);
+            std::thread::spawn(move || {
+                let _ = listener.serve(&service);
+            });
         }
         axum::serve(self.listener, router(self.repository))
             .with_graceful_shutdown(shutdown)

@@ -7,18 +7,12 @@
 //! [`Endpoint`] listener, and serves each connection on a thread. On a Unix
 //! shutdown signal it persists the current warm set back to the snapshot file.
 
-use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-#[cfg(unix)]
-use std::os::unix::net::UnixListener;
-
 use openscion_core::ObjectId;
 
-#[cfg(unix)]
-use openscion_tier::serve_unix;
-use openscion_tier::{BoundedSource, ObjectSource, SocketSource, Warmed, serve_tcp};
+use openscion_tier::{BoundListener, BoundedSource, ObjectSource, SocketSource, Warmed};
 
 use crate::config::{DaemonConfig, Endpoint};
 use crate::snapshot;
@@ -56,19 +50,11 @@ impl ObjectSource for Upstream {
     }
 }
 
-/// The daemon's bound listener, over whichever transport `--listen` named.
-#[derive(Debug)]
-enum Listener {
-    Tcp(TcpListener),
-    #[cfg(unix)]
-    Unix(UnixListener),
-}
-
 /// A bound, warmed node daemon ready to [`serve`](Daemon::serve).
 #[derive(Debug)]
 pub struct Daemon {
     store: Arc<NodeStore<BoundedSource<Upstream>>>,
-    listener: Listener,
+    listener: BoundListener,
     listening: String,
     snapshot_path: Option<PathBuf>,
     warmed: Warmed,
@@ -102,7 +88,8 @@ impl Daemon {
             Some(path) => store.warm(&snapshot::read_ids(path)?)?,
             None => store.warm(&[])?,
         };
-        let (listener, listening) = bind_listener(&config.listen)?;
+        let listener = config.listen.bind().map_err(Error::Transport)?;
+        let listening = listener.listening().to_owned();
         Ok(Self {
             store,
             listener,
@@ -147,13 +134,8 @@ impl Daemon {
         // The accept loop blocks forever, so it runs on its own thread and
         // shutdown is driven by a signal on this one.
         let serving = Arc::clone(&store);
-        std::thread::spawn(move || match listener {
-            Listener::Tcp(tcp) => {
-                let _ = serve_tcp(&tcp, &serving);
-            }
-            Listener::Unix(unix) => {
-                let _ = serve_unix(&unix, &serving);
-            }
+        std::thread::spawn(move || {
+            let _ = listener.serve(&serving);
         });
 
         let mut signals = Signals::new([SIGINT, SIGTERM]).map_err(Error::Transport)?;
@@ -178,26 +160,7 @@ impl Daemon {
         let Self {
             store, listener, ..
         } = self;
-        match listener {
-            Listener::Tcp(tcp) => serve_tcp(&tcp, &store),
-        }
-    }
-}
-
-/// Binds the listener named by `endpoint`, returning it with the resolved
-/// `tcp:<addr>`/`unix:<path>` string to report.
-fn bind_listener(endpoint: &Endpoint) -> Result<(Listener, String)> {
-    match endpoint {
-        Endpoint::Tcp(addr) => {
-            let listener = TcpListener::bind(addr).map_err(Error::Transport)?;
-            let resolved = listener.local_addr().map_err(Error::Transport)?;
-            Ok((Listener::Tcp(listener), format!("tcp:{resolved}")))
-        }
-        #[cfg(unix)]
-        Endpoint::Unix(path) => {
-            let listener = UnixListener::bind(path).map_err(Error::Transport)?;
-            Ok((Listener::Unix(listener), format!("unix:{}", path.display())))
-        }
+        listener.serve(&store)
     }
 }
 

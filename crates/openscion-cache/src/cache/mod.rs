@@ -4,18 +4,13 @@
 //! This is wiring over the library: a [`RegionalCache`] dials the configured
 //! `--upstream` into a [`SocketSource`], bounds its concurrency with a
 //! [`BoundedSource`], opens a [`CacheStore`] over a fresh [`MemoryBacking`], and
-//! binds the [`Endpoint`] listener. Unlike the daemon it persists nothing and
-//! warms from nothing: the cache starts empty, and a restart loses only warmth.
+//! binds its listener with [`Endpoint::bind`](openscion_tier::Endpoint::bind).
+//! Unlike the daemon it persists nothing and warms from nothing: the cache
+//! starts empty, and a restart loses only warmth.
 
-use std::net::TcpListener;
 use std::sync::Arc;
 
-#[cfg(unix)]
-use std::os::unix::net::UnixListener;
-
-#[cfg(unix)]
-use openscion_tier::serve_unix;
-use openscion_tier::{BoundedSource, Endpoint, SocketSource, Store, serve_tcp};
+use openscion_tier::{BoundListener, BoundedSource, SocketSource, Store};
 
 use crate::backing::MemoryBacking;
 use crate::config::CacheConfig;
@@ -27,19 +22,11 @@ use crate::{Error, Result};
 /// daemon names its disk store `NodeStore`.
 pub type CacheStore<S> = Store<S, MemoryBacking>;
 
-/// The cache's bound listener, over whichever transport `--listen` named.
-#[derive(Debug)]
-enum Listener {
-    Tcp(TcpListener),
-    #[cfg(unix)]
-    Unix(UnixListener),
-}
-
 /// A bound regional cache ready to [`serve`](RegionalCache::serve).
 #[derive(Debug)]
 pub struct RegionalCache {
     store: Arc<CacheStore<BoundedSource<SocketSource>>>,
-    listener: Listener,
+    listener: BoundListener,
     listening: String,
 }
 
@@ -60,7 +47,8 @@ impl RegionalCache {
             config.budget_bytes,
             MemoryBacking::new(),
         ));
-        let (listener, listening) = bind_listener(&config.listen)?;
+        let listener = config.listen.bind().map_err(Error::Transport)?;
+        let listening = listener.listening().to_owned();
         Ok(Self {
             store,
             listener,
@@ -93,13 +81,8 @@ impl RegionalCache {
         // The accept loop blocks forever, so it runs on its own thread and
         // shutdown is driven by a signal on this one. The cache keeps no state,
         // so there is nothing to flush when the signal arrives.
-        std::thread::spawn(move || match listener {
-            Listener::Tcp(tcp) => {
-                let _ = serve_tcp(&tcp, &store);
-            }
-            Listener::Unix(unix) => {
-                let _ = serve_unix(&unix, &store);
-            }
+        std::thread::spawn(move || {
+            let _ = listener.serve(&store);
         });
 
         let mut signals = Signals::new([SIGINT, SIGTERM]).map_err(Error::Transport)?;
@@ -120,26 +103,7 @@ impl RegionalCache {
         let Self {
             store, listener, ..
         } = self;
-        match listener {
-            Listener::Tcp(tcp) => serve_tcp(&tcp, &store),
-        }
-    }
-}
-
-/// Binds the listener named by `endpoint`, returning it with the resolved
-/// `tcp:<addr>`/`unix:<path>` string to report.
-fn bind_listener(endpoint: &Endpoint) -> Result<(Listener, String)> {
-    match endpoint {
-        Endpoint::Tcp(addr) => {
-            let listener = TcpListener::bind(addr).map_err(Error::Transport)?;
-            let resolved = listener.local_addr().map_err(Error::Transport)?;
-            Ok((Listener::Tcp(listener), format!("tcp:{resolved}")))
-        }
-        #[cfg(unix)]
-        Endpoint::Unix(path) => {
-            let listener = UnixListener::bind(path).map_err(Error::Transport)?;
-            Ok((Listener::Unix(listener), format!("unix:{}", path.display())))
-        }
+        listener.serve(&store)
     }
 }
 

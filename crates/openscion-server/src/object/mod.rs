@@ -5,26 +5,19 @@
 //! read-through `Store`; the server is the origin of that read-through chain and
 //! serves them from its authoritative [`Repository`](openscion_core::Repository)
 //! instead. [`RepositoryObjects`] adapts the shared repository to the tier's
-//! [`ObjectService`], and [`serve_objects`] runs the tier transport's accept
-//! loop over a bound [`Endpoint`] on its own thread, alongside the async HTTP
-//! server.
+//! [`ObjectService`], which an [`Endpoint::bind`](openscion_tier::Endpoint::bind)
+//! listener serves beside the async HTTP server.
 //!
 //! The endpoint is read-only: it answers object gets and nothing else, as the
 //! wire does at every tier. As the origin it has no tier above and sheds
 //! nothing — a get is found or absent.
 
-use std::net::TcpListener;
 use std::sync::Arc;
 
-#[cfg(unix)]
-use std::os::unix::net::UnixListener;
-
 use openscion_core::ObjectId;
-#[cfg(unix)]
-use openscion_tier::serve_unix;
-use openscion_tier::{Endpoint, ObjectService, serve_tcp};
+use openscion_tier::ObjectService;
 
-use crate::{Error, Result, SharedRepository};
+use crate::SharedRepository;
 
 /// The server's authoritative objects as a tier [`ObjectService`].
 ///
@@ -66,66 +59,6 @@ fn map_object(
         Err(openscion_core::Error::NotFound(_)) => Err(openscion_tier::Error::NotFound(id)),
         Err(error) => Err(openscion_tier::Error::Upstream(error.to_string())),
     }
-}
-
-/// The server's bound framed listener, over whichever transport the endpoint
-/// named.
-#[derive(Debug)]
-pub(crate) enum Listener {
-    /// A TCP listener, for a `tcp:<addr>` endpoint.
-    Tcp(TcpListener),
-    /// A Unix-domain listener, for a `unix:<path>` endpoint.
-    #[cfg(unix)]
-    Unix(UnixListener),
-}
-
-/// Binds the framed object listener named by `endpoint`, returning it with the
-/// resolved `tcp:<addr>`/`unix:<path>` string to report.
-///
-/// # Errors
-///
-/// Returns [`Error::ObjectListen`] when the endpoint cannot be bound.
-pub(crate) fn bind_object_listener(endpoint: &Endpoint) -> Result<(Listener, String)> {
-    match endpoint {
-        Endpoint::Tcp(addr) => {
-            let listener = TcpListener::bind(addr).map_err(listen_error(endpoint))?;
-            let resolved = listener.local_addr().map_err(listen_error(endpoint))?;
-            Ok((Listener::Tcp(listener), format!("tcp:{resolved}")))
-        }
-        #[cfg(unix)]
-        Endpoint::Unix(path) => {
-            let listener = UnixListener::bind(path).map_err(listen_error(endpoint))?;
-            Ok((Listener::Unix(listener), format!("unix:{}", path.display())))
-        }
-    }
-}
-
-/// Maps a bind failure to [`Error::ObjectListen`], naming the endpoint.
-fn listen_error(endpoint: &Endpoint) -> impl FnOnce(std::io::Error) -> Error + '_ {
-    move |source| Error::ObjectListen {
-        endpoint: endpoint.clone(),
-        source,
-    }
-}
-
-/// Serves the framed object RPCs from `service` on `listener`, each connection
-/// on its own thread, on a dedicated thread so it runs alongside the async HTTP
-/// server.
-///
-/// The accept loop lives for the process and is torn down with it; because
-/// objects are immutable and each framed connection is stateless, a connection
-/// dropped at shutdown costs a caller only a retry, so the endpoint needs no
-/// drain of its own.
-pub(crate) fn serve_objects(listener: Listener, service: Arc<RepositoryObjects>) {
-    std::thread::spawn(move || match listener {
-        Listener::Tcp(tcp) => {
-            let _ = serve_tcp(&tcp, &service);
-        }
-        #[cfg(unix)]
-        Listener::Unix(unix) => {
-            let _ = serve_unix(&unix, &service);
-        }
-    });
 }
 
 #[cfg(test)]

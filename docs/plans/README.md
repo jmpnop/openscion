@@ -54,3 +54,7 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a test-first sample
   the server's framed object endpoint: widen the tier transport to serve any
   `ObjectService`, and serve the authoritative repository over it as the origin
   of the read-through chain (phase 7).
+- [`openscion-tier-endpoint-bind.md`](openscion-tier-endpoint-bind.md) — lift the
+  per-tier listener plumbing into `Endpoint::bind -> BoundListener`, symmetric
+  with `Endpoint::dial`, and migrate the daemon, cache, and server to it
+  (phase 7 cleanup).

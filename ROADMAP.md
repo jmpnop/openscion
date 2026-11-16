@@ -177,6 +177,21 @@ This page tracks where things stand.
   nothing. A blob uploaded over HTTP is read back over the framed wire by a tier
   client in an end-to-end test. No third-party dependency beyond `openscion-tier`.
 
+- **`Endpoint::bind` for every tier** (phase 7 cleanup)
+  ([spec](docs/specs/openscion-tier-endpoint-bind.md),
+  [plan](docs/plans/openscion-tier-endpoint-bind.md)): the daemon, the cache, and
+  the server each carried a private copy of the same listener plumbing — a
+  `Listener` enum, a `bind_listener`, and a serve-dispatch with its own
+  `#[cfg(unix)]`. That is lifted into `openscion-tier` as
+  `Endpoint::bind -> BoundListener`, symmetric with the existing
+  `Endpoint::dial`: `BoundListener` reports its resolved `tcp:`/`unix:` address
+  and serves an `ObjectService`, hiding the transport split in one place. All
+  three tiers migrate to it, binding with `endpoint.bind()` and serving with
+  `bound.serve(&service)`; each still wraps a bind failure in its own error. The
+  change is behaviour-preserving — every tier suite, including the binary
+  integration tests, stays green — and resolves the deferred cleanup noted with
+  the server's object endpoint. No new dependency.
+
 ## Next
 
 1. **Network tiers** (phase 7): the distributed `MetadataStore`

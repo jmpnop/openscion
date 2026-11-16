@@ -16,6 +16,7 @@
 | [Shared tier crate (`openscion-tier`)](openscion-tier.md) | Accepted |
 | [Regional object cache (`openscion-cache`)](openscion-cache.md) | Accepted |
 | [The server's framed object endpoint](openscion-server-object-endpoint.md) | Accepted |
+| [`Endpoint::bind`: one listener for every tier](openscion-tier-endpoint-bind.md) | Accepted |
 
 Specifications define what the system must do before implementation details
 take over. Create one for behavior that changes a public API, crosses module

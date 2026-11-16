@@ -96,3 +96,67 @@ fn a_unix_endpoint_dials_the_server_it_names() {
     let dialed = Endpoint::Unix(path).dial();
     assert_eq!(&*dialed.fetch(id).unwrap().unwrap(), b"dialed over unix");
 }
+
+#[test]
+fn binding_a_tcp_endpoint_reports_the_resolved_address() {
+    let bound = Endpoint::Tcp("127.0.0.1:0".parse().unwrap())
+        .bind()
+        .unwrap();
+    // Port 0 is resolved to the port the OS chose.
+    assert!(bound.listening().starts_with("tcp:127.0.0.1:"));
+    assert!(!bound.listening().ends_with(":0"));
+}
+
+#[test]
+fn binding_a_taken_tcp_address_is_an_io_error() {
+    let taken = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = taken.local_addr().unwrap();
+    assert!(Endpoint::Tcp(addr).bind().is_err());
+}
+
+#[test]
+fn a_bound_tcp_listener_serves_an_object_service() {
+    let source = MemorySource::new();
+    let id = source.add(b"served via bind");
+    let served = store("bind-tcp", source);
+
+    let bound = Endpoint::Tcp("127.0.0.1:0".parse().unwrap())
+        .bind()
+        .unwrap();
+    let addr: std::net::SocketAddr = bound
+        .listening()
+        .trim_start_matches("tcp:")
+        .parse()
+        .unwrap();
+    std::thread::spawn(move || {
+        let _ = bound.serve(&served);
+    });
+
+    let client = Endpoint::Tcp(addr).dial();
+    assert_eq!(&*client.fetch(id).unwrap().unwrap(), b"served via bind");
+    assert_eq!(client.fetch(blob_id(b"absent")).unwrap(), None);
+}
+
+#[cfg(unix)]
+#[test]
+fn binding_a_unix_endpoint_reports_the_path_and_serves() {
+    let source = MemorySource::new();
+    let id = source.add(b"served via unix bind");
+    let served = store("bind-unix", source);
+
+    let dir = scratch("bind-unix-socket");
+    let path = dir.join("tier.sock");
+    let endpoint = Endpoint::Unix(path.clone());
+    let bound = endpoint.bind().unwrap();
+    assert_eq!(bound.listening(), format!("unix:{}", path.display()));
+    std::thread::spawn(move || {
+        let _ = bound.serve(&served);
+    });
+
+    let client = Endpoint::Unix(path).dial();
+    assert_eq!(
+        &*client.fetch(id).unwrap().unwrap(),
+        b"served via unix bind"
+    );
+    assert_eq!(client.fetch(blob_id(b"absent")).unwrap(), None);
+}
